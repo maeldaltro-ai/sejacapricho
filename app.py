@@ -11,7 +11,6 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 import tempfile
-import base64
 
 # Configuração da Página
 st.set_page_config(
@@ -513,76 +512,143 @@ def mostrar_create_budget():
     
     data = st.session_state.data
     
-    # Formulário do orçamento
+    # Inicializar variáveis
+    if 'manual_items' not in st.session_state:
+        st.session_state.manual_items = []
+    
+    # Formulário principal
     with st.form("budget_form"):
         col1, col2 = st.columns(2)
         
         with col1:
             cliente = st.text_input("Client *", placeholder="Client name")
             endereco = st.text_area("Address", placeholder="Full address")
-            tipo_entrega = st.radio("Delivery Type", ["Ready Delivery", "Custom Order"])
-            prazo_producao = st.text_input("Production Deadline", value="5 business days")
+            tipo_entrega = st.radio("Delivery Type", ["Pronta Entrega", "Sob Encomenda"])
+            prazo_producao = st.text_input("Production Deadline", value="5 dias úteis")
         
         with col2:
             data_orcamento = st.date_input("Date", value=datetime.now())
-            tipo_venda = st.radio("Sale Type", ["Resale", "Customized"])
+            tipo_venda = st.radio("Sale Type", ["Revenda", "Personalizado"])
             observacoes = st.text_area("Observations", placeholder="Additional information")
         
-        # Itens do orçamento
-        st.subheader("Items")
+        # Seção para adicionar itens manualmente (dentro do formulário)
+        with st.expander("Add Item Manually", expanded=False):
+            prod_col1, prod_col2, prod_col3 = st.columns(3)
+            with prod_col1:
+                produto_manual = st.selectbox(
+                    "Product",
+                    ["Apenas DTF"] + [p['nome'] for p in data['produtos']],
+                    key="produto_manual_select"
+                )
+            with prod_col2:
+                quantidade_manual = st.number_input("Quantity", min_value=1, value=1, key="qtd_manual")
+            with prod_col3:
+                valor_unitario_manual = st.number_input("Unit Value (R$)", min_value=0.0, value=0.0, step=0.01, key="valor_manual")
+            
+            # Usar form_submit_button para adicionar item
+            if st.form_submit_button("Add Item to Budget", type="secondary", use_container_width=True, key="add_item_btn"):
+                if produto_manual and quantidade_manual > 0:
+                    novo_item = {
+                        "nome": produto_manual,
+                        "quantidade": quantidade_manual,
+                        "valor_unitario": valor_unitario_manual,
+                        "preco_total": valor_unitario_manual * quantidade_manual
+                    }
+                    st.session_state.manual_items.append(novo_item)
+                    st.success(f"Item '{produto_manual}' added!")
         
-        # Usar produtos da calculadora ou adicionar novos
-        if st.session_state.get('selected_products'):
-            st.info(f"{len(st.session_state.selected_products)} products from calculator")
-            for i, item in enumerate(st.session_state.selected_products):
-                col_item1, col_item2, col_item3 = st.columns([3, 1, 1])
+        # Mostrar itens adicionados manualmente
+        if st.session_state.manual_items:
+            st.write("**Manual Items Added:**")
+            for i, item in enumerate(st.session_state.manual_items):
+                col_item1, col_item2, col_item3 = st.columns([3, 1, 2])
                 with col_item1:
-                    st.write(f"**{item['nome']}**")
+                    st.write(f"• {item['nome']}")
+                with col_item2:
+                    st.write(f"Qty: {item['quantidade']}")
+                with col_item3:
+                    st.write(f"Unit: {formatar_moeda(item['valor_unitario'])}")
+                    
+                    # Botão para remover item (usando índice único)
+                    if st.form_submit_button(f"Remove", key=f"remove_{i}"):
+                        st.session_state.manual_items.pop(i)
+                        st.rerun()
+        
+        # Mostrar itens da calculadora
+        if st.session_state.get('selected_products'):
+            st.write("**Items from Calculator:**")
+            for i, item in enumerate(st.session_state.selected_products):
+                col_item1, col_item2, col_item3 = st.columns([3, 1, 2])
+                with col_item1:
+                    st.write(f"• {item['nome']}")
                 with col_item2:
                     st.write(f"Qty: {item['quantidade']}")
                 with col_item3:
                     st.write(f"Unit: {formatar_moeda(item['preco_unitario'])}")
         
-        # Adicionar item manualmente
-        with st.expander("Add Item Manually"):
-            prod_col1, prod_col2, prod_col3 = st.columns(3)
-            with prod_col1:
-                produto_manual = st.selectbox(
-                    "Product",
-                    ["Only DTF"] + [p['nome'] for p in data['produtos']]
-                )
-            with prod_col2:
-                quantidade_manual = st.number_input("Quantity", min_value=1, value=1)
-            with prod_col3:
-                valor_unitario_manual = st.number_input("Unit Value (R$)", min_value=0.0, value=0.0)
-            
-            if st.button("Add Item to Budget"):
-                st.success("Item added!")
-        
-        # Botões do formulário
+        # Botões de ação do formulário principal
         col_btn1, col_btn2, col_btn3 = st.columns(3)
-        with col_btn1:
-            submit = st.form_submit_button("Save Budget", type="primary", use_container_width=True)
-        with col_btn2:
-            if st.form_submit_button("Save and Generate PDF", use_container_width=True):
-                submit = True
-                gerar_pdf_flag = True
-        with col_btn3:
-            if st.form_submit_button("Cancel", type="secondary", use_container_width=True):
-                st.session_state.current_page = "calculator"
-                st.rerun()
         
-        if submit:
-            if not cliente.strip():
-                st.error("Client name is required!")
+        with col_btn1:
+            save_clicked = st.form_submit_button("Save Budget", type="primary", use_container_width=True, key="save_budget")
+        
+        with col_btn2:
+            save_pdf_clicked = st.form_submit_button("Save and Generate PDF", use_container_width=True, key="save_pdf")
+        
+        with col_btn3:
+            cancel_clicked = st.form_submit_button("Cancel", type="secondary", use_container_width=True, key="cancel_budget")
+    
+    # Processar ações APÓS o formulário (fora do with st.form())
+    
+    if cancel_clicked:
+        # Limpar dados temporários
+        if 'manual_items' in st.session_state:
+            st.session_state.manual_items = []
+        st.session_state.current_page = "calculator"
+        st.rerun()
+    
+    if save_clicked or save_pdf_clicked:
+        if not cliente or not cliente.strip():
+            st.error("❌ Client name is required!")
+        else:
+            # Calcular valor total
+            total = 0
+            
+            # Somar itens da calculadora
+            if st.session_state.get('selected_products'):
+                total += sum(item['preco_total'] for item in st.session_state.selected_products)
+            
+            # Somar itens manuais
+            if st.session_state.manual_items:
+                total += sum(item['preco_total'] for item in st.session_state.manual_items)
+            
+            if total <= 0:
+                st.warning("⚠️ Add at least one item to the budget!")
             else:
-                # Calcular total
-                total = 0
-                if st.session_state.get('selected_products'):
-                    total = sum(item['preco_total'] for item in st.session_state.selected_products)
-                
-                # Criar orçamento
+                # Criar novo orçamento
                 novo_numero = data['ultimo_numero_orcamento'] + 1
+                
+                # Preparar itens para salvar
+                itens_para_salvar = []
+                
+                # Adicionar itens da calculadora
+                if st.session_state.get('selected_products'):
+                    for item in st.session_state.selected_products:
+                        itens_para_salvar.append({
+                            "nome": item['nome'],
+                            "quantidade": item['quantidade'],
+                            "valor_unitario": item['preco_unitario']
+                        })
+                
+                # Adicionar itens manuais
+                if st.session_state.manual_items:
+                    for item in st.session_state.manual_items:
+                        itens_para_salvar.append({
+                            "nome": item['nome'],
+                            "quantidade": item['quantidade'],
+                            "valor_unitario": item['valor_unitario']
+                        })
+                
                 novo_orcamento = {
                     "numero": novo_numero,
                     "data": datetime.now().strftime("%d/%m/%Y %H:%M"),
@@ -592,37 +658,43 @@ def mostrar_create_budget():
                     "endereco": endereco.strip(),
                     "prazo_producao": prazo_producao,
                     "valor_total": total,
-                    "observacoes": observacoes.strip()
+                    "observacoes": observacoes.strip(),
+                    "itens": itens_para_salvar
                 }
                 
-                # Adicionar itens
-                if st.session_state.get('selected_products'):
-                    novo_orcamento['itens'] = st.session_state.selected_products
-                
-                # Salvar
+                # Salvar no banco de dados
                 data['orcamentos'].append(novo_orcamento)
                 data['ultimo_numero_orcamento'] = novo_numero
                 salvar_dados(data)
                 st.session_state.data = data
                 
-                st.success(f"Budget #{novo_numero:04d} saved successfully!")
+                st.success(f"✅ Budget #{novo_numero:04d} saved successfully!")
                 
-                # Limpar seleção
-                st.session_state.selected_products = []
+                # Limpar dados temporários
+                if 'selected_products' in st.session_state:
+                    st.session_state.selected_products = []
+                if 'manual_items' in st.session_state:
+                    st.session_state.manual_items = []
                 
                 # Gerar PDF se solicitado
-                if gerar_pdf_flag:
+                if save_pdf_clicked:
                     pdf_path = gerar_pdf(novo_orcamento)
                     if pdf_path:
                         with open(pdf_path, "rb") as f:
                             pdf_bytes = f.read()
                         
                         st.download_button(
-                            label="Download PDF",
+                            label="📄 Download PDF",
                             data=pdf_bytes,
                             file_name=f"Orcamento_{novo_numero:04d}.pdf",
-                            mime="application/pdf"
+                            mime="application/pdf",
+                            type="primary"
                         )
+                
+                # Opção para ir para a lista de orçamentos
+                if st.button("View Budgets List"):
+                    st.session_state.current_page = "orcamentos"
+                    st.rerun()
 
 # --- TELA: VIEW BUDGET ---
 def mostrar_view_budget():
