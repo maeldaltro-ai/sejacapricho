@@ -1,0 +1,222 @@
+{
+    "config": {
+        "preco_metro": 80.0,
+        "largura_rolo": 58.0,
+        "altura_rolo": 100,
+        "labels": {
+            "energia": "Energy (R$)",
+            "transporte": "Transport (R$)",
+            "embalagem": "Packaging (R$)"
+        },
+        "fixed_costs": {
+            "energia": 1.0,
+            "transporte": 2.0,
+            "embalagem": 1.0
+        }
+    },
+    "produtos": [
+        {
+            "nome": "Camisa Classic",
+            "custo": 18.99,
+            "energia": 0.0,
+            "transp": 0.0,
+            "emb": 0.0,
+            "usa_dtf": true
+        },
+        {
+            "nome": "Cropped Algodão",
+            "custo": 24.9,
+            "energia": 0.0,
+            "transp": 0.0,
+            "emb": 0.0,
+            "usa_dtf": true
+        },
+        {
+            "nome": "Cropped Touch",
+            "custo": 26.99,
+            "energia": 0.0,
+            "transp": 0.0,
+            "emb": 0.0,
+            "usa_dtf": true
+        },
+        {
+            "nome": "Camisa Preimum REV",
+            "custo": 34.2,
+            "energia": 0.0,
+            "transp": 0.0,
+            "emb": 0.0,
+            "usa_dtf": false
+        },
+        {
+            "nome": "Camisa Premium",
+            "custo": 26.5,
+            "energia": 0.0,
+            "transp": 0.0,
+            "emb": 0.0,
+            "usa_dtf": true
+        },
+        {
+            "nome": "Camisa Classic REV",
+            "custo": 30.0,
+            "energia": 0.0,
+            "transp": 0.0,
+            "emb": 0.0,
+            "usa_dtf": false
+        },
+        {
+            "nome": "EcoBag 32x40",
+            "custo": 9.0,
+            "energia": 0.0,
+            "transp": 0.0,
+            "emb": 0.0,
+            "usa_dtf": true
+        }
+    ],
+    "orcamentos": [
+        {
+            "numero": 1,
+            "data": "22/12/2025 20:19",
+            "cliente": "Julio",
+            "tipo_entrega": "Pronta Entrega",
+            "tipo_venda": "Revenda",
+            "endereco": "Rua Amarailna, 1639,",
+            "prazo_producao": "1 dias úteis",
+            "produto": "Camisa Classic REV",
+            "valor_unitario": 30.0,
+            "quantidade": 5.0,
+            "valor_total": 150.0,
+            "observacoes": "Orçamento modelo, solicitado por Mael."
+        },
+        {
+            "numero": 2,
+            "data": "23/12/2025 01:14",
+            "cliente": "Teste",
+            "tipo_entrega": "Sob Encomenda",
+            "tipo_venda": "Personalizado",
+            "endereco": "Teste",
+            "prazo_producao": "5 dias úteis",
+            "produto": "EcoBag 32x40",
+            "valor_unitario": 39.36,
+            "quantidade": 2.0,
+            "valor_total": 78.72,
+            "observacoes": "Teste"
+        },
+        {
+            "numero": 3,
+            "data": "23/12/2025 17:18",
+            "cliente": "Natália Menezes",
+            "tipo_entrega": "Sob Encomenda",
+            "tipo_venda": "Personalizado",
+            "endereco": "Rua Carlos Valadares, 457, Centro",
+            "prazo_producao": "2 dias úteis",
+            "itens": [
+                {
+                    "nome": "EcoBag 32x40",
+                    "quantidade": 1,
+                    "dimensoes": [
+                        25.0,
+                        25.0,
+                        25.0,
+                        25.0
+                    ],
+                    "usa_dtf": true,
+                    "energia": 0.0,
+                    "transporte": 0.0,
+                    "embalagem": 0.0,
+                    "valor_unitario": 39.36206896551724
+                },
+                {
+                    "nome": "EcoBag 32x40",
+                    "quantidade": 1,
+                    "dimensoes": [
+                        25.0,
+                        25.0,
+                        25.0,
+                        25.0
+                    ],
+                    "usa_dtf": true,
+                    "energia": 0.0,
+                    "transporte": 0.0,
+                    "embalagem": 0.0,
+                    "valor_unitario": 39.36206896551724
+                },
+                {
+                    "nome": "EcoBag 32x40",
+                    "quantidade": 1,
+                    "dimensoes": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0
+                    ],
+                    "usa_dtf": true,
+                    "energia": 0.0,
+                    "transporte": 0.0,
+                    "embalagem": 0.0,
+                    "valor_unitario": 9.99
+                }
+            ],
+            "valor_total": 88.71413793103447,
+            "observacoes": "Orçamento para Ecobag personalizada gerado por Mael"
+        },
+        {
+            "numero": 4,
+            "data": "23/12/2025 17:28",
+            "cliente": "Natália Menezes Reis",
+            "tipo_entrega": "Sob Encomenda",
+            "tipo_venda": "Personalizado",
+            "endereco": "Rua Carlos Valadares, 457, Centro",
+            "prazo_producao": "5 dias úteis",
+            "itens": [
+                {
+                    "nome": "EcoBag 32x40",
+                    "quantidade": 1,
+                    "dimensoes": [
+                        25.0,
+                        25.0,
+                        25.0,
+                        25.0
+                    ],
+                    "usa_dtf": true,
+                    "energia": 0.0,
+                    "transporte": 0.0,
+                    "embalagem": 0.0,
+                    "valor_unitario": 39.36206896551724
+                },
+                {
+                    "nome": "EcoBag 32x40",
+                    "quantidade": 1,
+                    "dimensoes": [
+                        25.0,
+                        25.0,
+                        25.0,
+                        25.0
+                    ],
+                    "usa_dtf": true,
+                    "energia": 0.0,
+                    "transporte": 0.0,
+                    "embalagem": 0.0,
+                    "valor_unitario": 39.36206896551724
+                },
+                {
+                    "nome": "EcoBag 32x40",
+                    "quantidade": 1,
+                    "dimensoes": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0
+                    ],
+                    "usa_dtf": true,
+                    "energia": 0.0,
+                    "transporte": 0.0,
+                    "embalagem": 0.0,
+                    "valor_unitario": 9.99
+                }
+            ],
+            "valor_total": 88.71413793103447,
+            "observacoes": "Orçamento para produção de Ecobag personalizada."
+        }
+    ],
+    "ultimo_numero_orcamento": 4
+}
