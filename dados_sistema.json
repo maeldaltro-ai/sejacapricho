@@ -218,5 +218,11 @@
             "observacoes": "Orçamento para produção de Ecobag personalizada."
         }
     ],
-    "ultimo_numero_orcamento": 4
+    "ultimo_numero_orcamento": 4,
+    "clientes": [],
+    "fornecedores": [],
+    "pedidos": [],
+    "ultimo_id_cliente": 0,
+    "ultimo_id_fornecedor": 0,
+    "ultimo_id_pedido": 0
 }
