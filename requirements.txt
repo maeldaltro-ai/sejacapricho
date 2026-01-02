@@ -2,6 +2,12 @@ streamlit>=1.28.0
 pandas>=2.0.0
 pillow>=10.0.0
 reportlab>=4.0.0
-bcrypt>=4.0.0
-openpyxl>=3.0.0  # Adicionado para melhor compatibilidade com Excel/DataFrames
-
+openpyxl>=3.0.0
+psycopg2-binary>=2.9.0  # PostgreSQL
+sqlalchemy>=2.0.0       # ORM
+bcrypt>=4.0.0           # Hash de senhas
+python-jose[cryptography]>=3.3.0  # JWT tokens
+python-dotenv>=1.0.0    # Variáveis de ambiente
+streamlit-authenticator>=0.2.0  # Componentes de auth
+pyjwt>=2.0.0
+cryptography>=41.0.0
