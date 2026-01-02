@@ -17,6 +17,7 @@ pip-delete-this-directory.txt
 venv/
 .env
 .env.*
+.env.local
 
 # System files
 .DS_Store
@@ -24,6 +25,26 @@ Thumbs.db
 
 # Streamlit data/cache
 .streamlit/
+*.pyc
+*.pyo
 
 # VS Code
 .vscode/
+.idea/
+
+# Database backups
+*.db
+*.sqlite
+*.sqlite3
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+
+# PDF files gerados temporariamente
+temp_*.pdf
+
+# Arquivos de dados de desenvolvimento
+dados_sistema_backup*.json
+test_*.json
