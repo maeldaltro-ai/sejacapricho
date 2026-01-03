@@ -1960,26 +1960,39 @@ def mostrar_pedidos():
 def mostrar_novo_pedido():
     st.title("🛒 Novo Pedido")
     
-    # Inicializar estados do fluxo
-    if 'pedido_etapa' not in st.session_state:
-        st.session_state.pedido_etapa = 1  # 1: Selecionar cliente, 2: Configurar pedido, 3: Finalizar
+    # VERIFICAR SE É UM NOVO PEDIDO (resetar estado se necessário)
+    reset_pedido = False
     
-    if 'pedido_cliente_selecionado' not in st.session_state:
+    # Se veio da tela de clientes ou de pedidos, resetar
+    if 'novo_pedido_cliente' in st.session_state:
+        reset_pedido = True
+    
+    # Se está na etapa 3 (finalização) e clicou em novo pedido, resetar
+    if 'pedido_etapa' in st.session_state and st.session_state.pedido_etapa == 3:
+        reset_pedido = True
+    
+    # Resetar todos os estados do pedido se necessário
+    if reset_pedido or 'pedido_etapa' not in st.session_state:
+        st.session_state.pedido_etapa = 1  # Sempre começar na etapa 1
         st.session_state.pedido_cliente_selecionado = None
-    
-    if 'pedido_itens_calculados' not in st.session_state:
         st.session_state.pedido_itens_calculados = []
-    
-    if 'pedido_info' not in st.session_state:
         st.session_state.pedido_info = {
             'tipo_entrega': 'Pronta Entrega',
             'prazo_entrega': '5 dias úteis',
             'forma_pagamento': 'Não Definido',
             'observacoes': ''
         }
+        # Limpar cálculo atual se existir
+        if 'calculo_atual' in st.session_state:
+            del st.session_state.calculo_atual
     
-    # Carregar dados
+    # Carregar dados do banco de dados
     data = carregar_dados()
+    
+    # Se veio da tela de clientes, configurar cliente pré-selecionado
+    if 'novo_pedido_cliente' in st.session_state and st.session_state.pedido_etapa == 1:
+        cliente_pre = st.session_state.novo_pedido_cliente
+        st.session_state.pedido_cliente_selecionado = cliente_pre
     
     # ETAPA 1: SELEÇÃO DO CLIENTE
     if st.session_state.pedido_etapa == 1:
@@ -1988,17 +2001,21 @@ def mostrar_novo_pedido():
         # Seleção de cliente
         clientes_options = [c['name'] for c in data['clientes']]
         
-        # Se veio da tela de clientes, pré-selecionar
-        if st.session_state.get('novo_pedido_cliente'):
+        # Determinar cliente inicialmente selecionado
+        index = 0
+        cliente_selecionado_nome = ""
+        
+        if st.session_state.pedido_cliente_selecionado:
+            # Usar cliente já selecionado (se houver)
+            cliente_selecionado_nome = st.session_state.pedido_cliente_selecionado['name']
+            if cliente_selecionado_nome in clientes_options:
+                index = clientes_options.index(cliente_selecionado_nome)
+        elif 'novo_pedido_cliente' in st.session_state:
+            # Usar cliente que veio da tela de clientes
             cliente_pre_selecionado = st.session_state.novo_pedido_cliente['name']
-            index = clientes_options.index(cliente_pre_selecionado) if cliente_pre_selecionado in clientes_options else 0
-            # Armazenar cliente pré-selecionado
-            for c in data['clientes']:
-                if c['name'] == cliente_pre_selecionado:
-                    st.session_state.pedido_cliente_selecionado = c
-                    break
-        else:
-            index = 0
+            if cliente_pre_selecionado in clientes_options:
+                index = clientes_options.index(cliente_pre_selecionado)
+                cliente_selecionado_nome = cliente_pre_selecionado
         
         cliente_selecionado = st.selectbox(
             "Selecione o cliente *", 
@@ -2013,6 +2030,9 @@ def mostrar_novo_pedido():
             if c['name'] == cliente_selecionado:
                 cliente_atual = c
                 break
+        
+        # Atualizar cliente selecionado no session state
+        st.session_state.pedido_cliente_selecionado = cliente_atual
         
         # Mostrar informações do cliente
         if cliente_atual:
@@ -2046,10 +2066,12 @@ def mostrar_novo_pedido():
         
         with col_btn3:
             if cliente_atual and st.button("👉 Avançar", type="primary", use_container_width=True):
-                st.session_state.pedido_cliente_selecionado = cliente_atual
+                # Remover indicador de novo pedido vindo de clientes
+                if 'novo_pedido_cliente' in st.session_state:
+                    del st.session_state.novo_pedido_cliente
                 st.session_state.pedido_etapa = 2
                 st.rerun()
-    
+   
     # ETAPA 2: CONFIGURAÇÃO DO PEDIDO
     elif st.session_state.pedido_etapa == 2:
         cliente = st.session_state.pedido_cliente_selecionado
