@@ -3,7 +3,18 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
 from datetime import datetime
 import json
-from config import config
+import os
+
+# Obter DATABASE_URL do ambiente ou usar padrão SQLite
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    # Tentar importar do config, se existir
+    try:
+        from config import config
+        DATABASE_URL = config.DATABASE_URL
+    except (ImportError, AttributeError):
+        # Fallback para SQLite
+        DATABASE_URL = "sqlite:///./app.db"
 
 Base = declarative_base()
 
@@ -30,8 +41,10 @@ class User(Base):
             'username': self.username,
             'email': self.email,
             'full_name': self.full_name,
+            'is_active': self.is_active,
             'is_admin': self.is_admin,
-            'created_at': self.created_at.isoformat() if self.created_at else None
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
 
 class Product(Base):
@@ -46,16 +59,25 @@ class Product(Base):
     uses_dtf = Column(Boolean, default=True)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
     
     def to_dict(self):
         return {
             'id': self.id,
+            'nome': self.name,  # Para compatibilidade com código existente
             'name': self.name,
+            'custo': self.cost,
             'cost': self.cost,
             'energy_cost': self.energy_cost,
+            'energia': self.energy_cost,
             'transport_cost': self.transport_cost,
+            'transp': self.transport_cost,
             'packaging_cost': self.packaging_cost,
-            'uses_dtf': self.uses_dtf
+            'emb': self.packaging_cost,
+            'uses_dtf': self.uses_dtf,
+            'usa_dtf': self.uses_dtf,
+            'is_active': self.is_active,
+            'created_at': self.created_at.isoformat() if self.created_at else None
         }
 
 class Customer(Base):
@@ -73,6 +95,7 @@ class Customer(Base):
     email = Column(String(100))
     notes = Column(Text)
     created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
     user_id = Column(Integer, ForeignKey('users.id'))
     
     # Relacionamentos
@@ -92,7 +115,9 @@ class Customer(Base):
             'phone': self.phone,
             'email': self.email,
             'notes': self.notes,
-            'created_at': self.created_at.isoformat() if self.created_at else None
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            'user_id': self.user_id
         }
 
 class Supplier(Base):
@@ -109,6 +134,7 @@ class Supplier(Base):
     email = Column(String(100))
     notes = Column(Text)
     created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
     user_id = Column(Integer, ForeignKey('users.id'))
     
     user = relationship("User")
@@ -124,7 +150,9 @@ class Supplier(Base):
             'address': self.address,
             'phone': self.phone,
             'email': self.email,
-            'notes': self.notes
+            'notes': self.notes,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'user_id': self.user_id
         }
 
 class Order(Base):
@@ -135,7 +163,7 @@ class Order(Base):
     customer_id = Column(Integer, ForeignKey('customers.id'))
     user_id = Column(Integer, ForeignKey('users.id'))
     total_amount = Column(Float, default=0.0)
-    items = Column(JSON)  # Lista de itens em formato JSON
+    items = Column(Text)  # JSON armazenado como Text
     delivery_type = Column(String(50))
     delivery_deadline = Column(String(50))
     payment_method = Column(String(50))
@@ -143,6 +171,7 @@ class Order(Base):
     delivery_status = Column(String(20), default='production')  # production, delivered
     notes = Column(Text)
     created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
     paid_at = Column(DateTime)
     delivered_at = Column(DateTime)
     
@@ -151,13 +180,20 @@ class Order(Base):
     user = relationship("User", back_populates="orders")
     
     def to_dict(self):
+        items_data = []
+        try:
+            if self.items:
+                items_data = json.loads(self.items)
+        except:
+            items_data = []
+            
         return {
             'id': self.id,
             'order_number': self.order_number,
             'customer_id': self.customer_id,
             'user_id': self.user_id,
             'total_amount': self.total_amount,
-            'items': json.loads(self.items) if isinstance(self.items, str) else self.items,
+            'items': items_data,
             'delivery_type': self.delivery_type,
             'delivery_deadline': self.delivery_deadline,
             'payment_method': self.payment_method,
@@ -165,6 +201,7 @@ class Order(Base):
             'delivery_status': self.delivery_status,
             'notes': self.notes,
             'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
             'paid_at': self.paid_at.isoformat() if self.paid_at else None,
             'delivered_at': self.delivered_at.isoformat() if self.delivered_at else None
         }
@@ -180,26 +217,45 @@ class Budget(Base):
     sale_type = Column(String(50))
     production_deadline = Column(String(50))
     total_amount = Column(Float, default=0.0)
-    items = Column(JSON)
+    items = Column(Text)  # JSON armazenado como Text
     notes = Column(Text)
     created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
     user_id = Column(Integer, ForeignKey('users.id'))
     
     user = relationship("User", back_populates="budgets")
     
     def to_dict(self):
+        items_data = []
+        try:
+            if self.items:
+                items_data = json.loads(self.items)
+        except:
+            items_data = []
+            
         return {
             'id': self.id,
+            'numero': self.budget_number,  # Para compatibilidade
             'budget_number': self.budget_number,
+            'cliente': self.client_name,  # Para compatibilidade
             'client_name': self.client_name,
+            'endereco': self.address,  # Para compatibilidade
             'address': self.address,
+            'tipo_entrega': self.delivery_type,  # Para compatibilidade
             'delivery_type': self.delivery_type,
+            'tipo_venda': self.sale_type,  # Para compatibilidade
             'sale_type': self.sale_type,
+            'prazo_producao': self.production_deadline,  # Para compatibilidade
             'production_deadline': self.production_deadline,
+            'valor_total': self.total_amount,  # Para compatibilidade
             'total_amount': self.total_amount,
-            'items': json.loads(self.items) if isinstance(self.items, str) else self.items,
+            'items': items_data,
+            'observacoes': self.notes,  # Para compatibilidade
             'notes': self.notes,
-            'created_at': self.created_at.isoformat() if self.created_at else None
+            'data': self.created_at.isoformat() if self.created_at else None,  # Para compatibilidade
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            'user_id': self.user_id
         }
 
 class SystemConfig(Base):
@@ -211,20 +267,27 @@ class SystemConfig(Base):
     value_type = Column(String(20))  # string, number, boolean, json
     category = Column(String(50))
     description = Column(Text)
+    created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
     
     def get_value(self):
         if self.value_type == 'number':
-            return float(self.value)
+            try:
+                return float(self.value)
+            except:
+                return 0.0
         elif self.value_type == 'boolean':
             return self.value.lower() == 'true'
         elif self.value_type == 'json':
-            return json.loads(self.value)
+            try:
+                return json.loads(self.value)
+            except:
+                return {}
         else:
             return self.value
 
-# Criar engine e sessão
-engine = create_engine(config.DATABASE_URL)
+# Criar engine e sessão APÓS definir todos os modelos
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def init_db():
@@ -234,7 +297,9 @@ def init_db():
     # Criar usuário admin padrão se não existir
     db = SessionLocal()
     try:
+        # Importar aqui para evitar import circular
         from utils.security import hash_password
+        
         admin_user = db.query(User).filter(User.username == 'admin').first()
         if not admin_user:
             admin_user = User(
@@ -242,11 +307,12 @@ def init_db():
                 email='admin@sejacapricho.com.br',
                 password_hash=hash_password('admin123'),
                 full_name='Administrador',
+                is_active=True,
                 is_admin=True
             )
             db.add(admin_user)
             db.commit()
-            
+        
         # Configurações padrão do sistema
         default_configs = [
             {'key': 'dtf_price_per_meter', 'value': '80.0', 'value_type': 'number', 'category': 'dtf', 'description': 'Preço do DTF por metro'},
@@ -259,6 +325,7 @@ def init_db():
             {'key': 'energy_cost_value', 'value': '1.0', 'value_type': 'number', 'category': 'fixed_costs', 'description': 'Valor fixo para energia'},
             {'key': 'transport_cost_value', 'value': '2.0', 'value_type': 'number', 'category': 'fixed_costs', 'description': 'Valor fixo para transporte'},
             {'key': 'packaging_cost_value', 'value': '1.0', 'value_type': 'number', 'category': 'fixed_costs', 'description': 'Valor fixo para embalagem'},
+            {'key': 'default_production_days', 'value': '5', 'value_type': 'number', 'category': 'general', 'description': 'Dias padrão para produção'},
         ]
         
         for config_data in default_configs:
@@ -270,12 +337,13 @@ def init_db():
         db.commit()
     except Exception as e:
         db.rollback()
+        print(f"Erro ao inicializar banco de dados: {str(e)}")
         raise e
     finally:
         db.close()
 
 def get_db():
-    """Retorna uma sessão do banco de dados"""
+    """Retorna uma sessão do banco de dados (para uso com FastAPI/Depends)"""
     db = SessionLocal()
     try:
         yield db
