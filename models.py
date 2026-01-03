@@ -223,9 +223,10 @@ class SystemConfig(Base):
         else:
             return self.value
 
-# Criar engine e sessão
-engine = create_engine(config.DATABASE_URL)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+# Temporary test - use SQLite
+engine = create_engine("sqlite:///./test.db")
+# OR for PostgreSQL (replace with your actual credentials)
+# engine = create_engine("postgresql://user:password@localhost/dbname")
 
 def init_db():
     """Inicializa o banco de dados"""
