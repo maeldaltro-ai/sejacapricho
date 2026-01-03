@@ -1,13 +1,10 @@
-streamlit>=1.28.0
-pandas>=2.0.0
-pillow>=10.0.0
-reportlab>=4.0.0
-openpyxl>=3.0.0
-psycopg2-binary>=2.9.0  # PostgreSQL
-sqlalchemy>=2.0.0       # ORM
-bcrypt>=4.0.0           # Hash de senhas
-python-jose[cryptography]>=3.3.0  # JWT tokens
-python-dotenv>=1.0.0    # Variáveis de ambiente
-streamlit-authenticator>=0.2.0  # Componentes de auth
-pyjwt>=2.0.0
-cryptography>=41.0.0
+streamlit==1.28.1
+pandas==2.1.3
+SQLAlchemy==2.0.23
+psycopg2-binary==2.9.9
+bcrypt==4.1.2
+PyJWT==2.8.0
+cryptography==41.0.7
+reportlab==4.0.7
+python-dotenv==1.0.0
+Pillow==10.1.0
