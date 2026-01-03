@@ -1,13 +1,3 @@
-import os
-import sys
-
-# Adicionar o diretório atual ao path para importações locais
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
-# Configurar DATABASE_URL se não existir
-if not os.getenv("DATABASE_URL"):
-    os.environ["DATABASE_URL"] = "sqlite:///./app.db"
-
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
@@ -309,6 +299,216 @@ def gerar_pdf(orcamento):
         
     except Exception as e:
         st.error(f"Error generating PDF: {str(e)}")
+        return None
+
+def gerar_nota_fiscal(pedido, cliente):
+    """Gera nota fiscal/recibo para um pedido"""
+    try:
+        # Criar arquivo temporário
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
+        pdf_path = temp_file.name
+        temp_file.close()
+        
+        # Criar documento
+        doc = SimpleDocTemplate(pdf_path, pagesize=A4, 
+                               rightMargin=72, leftMargin=72,
+                               topMargin=72, bottomMargin=72)
+        
+        elements = []
+        styles = getSampleStyleSheet()
+        
+        # Estilos personalizados
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=16,
+            alignment=TA_CENTER,
+            spaceAfter=12
+        )
+        
+        # Título
+        title = Paragraph(f"RECIBO / NOTA FISCAL", title_style)
+        elements.append(title)
+        elements.append(Spacer(1, 12))
+        
+        # Informações da empresa
+        empresa_info = [
+            ["Criatividade, Personalidade e muito Capricho!", ""],
+            ["DTF Pricing Calculator", ""],
+            [f"Data: {datetime.now().strftime('%d/%m/%Y %H:%M')}", ""],
+            [f"Nº do Pedido: #{pedido.get('order_number', pedido.get('id', ''))}", ""]
+        ]
+        
+        empresa_table = Table(empresa_info, colWidths=[doc.width/2.0]*2)
+        empresa_table.setStyle(TableStyle([
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (0, 1), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+        ]))
+        
+        elements.append(empresa_table)
+        elements.append(Spacer(1, 20))
+        
+        # Dados do Cliente
+        cliente_data = [
+            ["DADOS DO CLIENTE", ""],
+            ["Cliente:", cliente.get('name', '') if cliente else ''],
+            ["Documento:", cliente.get('document', '') if cliente else ''],
+            ["Endereço:", cliente.get('address', '') if cliente else ''],
+            ["Telefone:", cliente.get('phone', '') if cliente else ''],
+            ["Email:", cliente.get('email', '') if cliente else ''],
+            ["Tipo de Entrega:", pedido.get('delivery_type', '')],
+            ["Prazo de Entrega:", pedido.get('delivery_deadline', '')]
+        ]
+        
+        cliente_table = Table(cliente_data, colWidths=[doc.width/3.0, doc.width*2/3.0])
+        cliente_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor(COLOR_PURPLE)),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 12),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#f5f5f5')),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('ALIGN', (0, 1), (0, -1), 'LEFT'),
+            ('ALIGN', (1, 1), (1, -1), 'LEFT'),
+            ('FONTSIZE', (0, 1), (-1, -1), 10),
+            ('PADDING', (0, 1), (-1, -1), 6),
+        ]))
+        
+        elements.append(cliente_table)
+        elements.append(Spacer(1, 20))
+        
+        # Itens do Pedido
+        items_data = [["ITENS DO PEDIDO", "", "", ""], 
+                     ["Produto", "Quantidade", "Valor Unitário (R$)", "Valor Total (R$)"]]
+        
+        items = pedido.get('items', [])
+        if isinstance(items, str):
+            items = json.loads(items)
+        
+        for item in items:
+            item_total = float(item.get('valor_unitario', item.get('unit_price', 0))) * float(item.get('quantidade', item.get('quantity', 0)))
+            items_data.append([
+                item.get('nome', item.get('name', '')),
+                f"{item.get('quantidade', item.get('quantity', 0)):.0f}",
+                formatar_moeda(item.get('valor_unitario', item.get('unit_price', 0))),
+                formatar_moeda(item_total)
+            ])
+        
+        items_table = Table(items_data, colWidths=[doc.width*0.4, doc.width*0.2, doc.width*0.2, doc.width*0.2])
+        items_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor(COLOR_ORANGE)),
+            ('BACKGROUND', (0, 1), (-1, 1), colors.HexColor(COLOR_SLATE)),
+            ('TEXTCOLOR', (0, 0), (-1, 1), colors.white),
+            ('ALIGN', (0, 0), (-1, 1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 1), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 1), 11),
+            ('BOTTOMPADDING', (0, 0), (-1, 1), 8),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('ALIGN', (0, 2), (-1, 2), 'CENTER'),
+            ('BACKGROUND', (0, 2), (-1, 2), colors.HexColor('#f9f9f9')),
+            ('FONTSIZE', (0, 2), (-1, 2), 10),
+            ('PADDING', (0, 2), (-1, 2), 8),
+        ]))
+        
+        elements.append(items_table)
+        elements.append(Spacer(1, 20))
+        
+        # Resumo do Pedido
+        resumo_data = [
+            ["RESUMO DO PEDIDO", ""],
+            ["Subtotal:", formatar_moeda(pedido.get('total_amount', 0))],
+            ["Status de Pagamento:", "PAGO" if pedido.get('payment_status') == 'paid' else "PENDENTE"],
+            ["Status de Entrega:", "ENTREGUE" if pedido.get('delivery_status') == 'delivered' else "EM PRODUÇÃO"]
+        ]
+        
+        if pedido.get('payment_method'):
+            resumo_data.insert(3, ["Forma de Pagamento:", pedido.get('payment_method')])
+        
+        resumo_table = Table(resumo_data, colWidths=[doc.width/2.0]*2)
+        resumo_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor(COLOR_GREEN)),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 12),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('ALIGN', (0, 1), (0, -1), 'LEFT'),
+            ('ALIGN', (1, 1), (1, -1), 'RIGHT'),
+            ('FONTSIZE', (0, 1), (-1, -1), 11),
+            ('PADDING', (0, 1), (-1, -1), 8),
+        ]))
+        
+        elements.append(resumo_table)
+        
+        # Observações
+        if pedido.get('notes'):
+            elements.append(Spacer(1, 20))
+            obs_data = [
+                ["OBSERVAÇÕES"],
+                [pedido['notes']]
+            ]
+            
+            obs_table = Table(obs_data, colWidths=[doc.width])
+            obs_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor(COLOR_GRAY)),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 11),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black),
+                ('ALIGN', (0, 1), (-1, 1), 'LEFT'),
+                ('FONTSIZE', (0, 1), (-1, 1), 10),
+                ('PADDING', (0, 1), (-1, 1), 8),
+                ('BACKGROUND', (0, 1), (-1, 1), colors.HexColor('#f5f5f5')),
+            ]))
+            
+            elements.append(obs_table)
+        
+        # Rodapé
+        elements.append(Spacer(1, 30))
+        rodape = Paragraph(
+            "INFORMAÇÕES IMPORTANTES<br/>"
+            "1. Este documento serve como recibo/nota fiscal simplificada.<br/>"
+            "2. Guarde este comprovante para futuras referências.<br/>"
+            "3. Para dúvidas ou reclamações, entre em contato.<br/>"
+            "(75) 9155-5968 | @sejacapricho | sejacapricho.com.br<br/><br/>"
+            f"Emitido em: {datetime.now().strftime('%d/%m/%Y às %H:%M')}",
+            ParagraphStyle(
+                'Rodape',
+                parent=styles['Normal'],
+                fontSize=9,
+                alignment=TA_CENTER,
+                textColor=colors.gray
+            )
+        )
+        elements.append(rodape)
+        
+        # Assinatura
+        elements.append(Spacer(1, 40))
+        assinatura_data = [
+            ["________________________________"],
+            ["Assinatura do Responsável"]
+        ]
+        
+        assinatura_table = Table(assinatura_data, colWidths=[doc.width])
+        assinatura_table.setStyle(TableStyle([
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ]))
+        elements.append(assinatura_table)
+        
+        # Construir PDF
+        doc.build(elements)
+        return pdf_path
+        
+    except Exception as e:
+        st.error(f"Error generating invoice: {str(e)}")
         return None
 
 # --- TELA: CALCULATOR ---
@@ -1974,8 +2174,18 @@ def mostrar_novo_pedido():
                 
                 # Gerar nota fiscal se solicitado
                 if save_pdf_clicked:
-                    st.warning("Invoice generation not implemented in this version")
-                    # Implementar geração de nota fiscal futuramente
+                    pdf_path = gerar_nota_fiscal(novo_pedido.to_dict(), cliente_atual)
+                    if pdf_path:
+                        with open(pdf_path, "rb") as f:
+                            pdf_bytes = f.read()
+                        
+                        st.download_button(
+                            label="📄 Download Invoice",
+                            data=pdf_bytes,
+                            file_name=f"Nota_Pedido_{ultimo_numero}.pdf",
+                            mime="application/pdf",
+                            type="primary"
+                        )
                 
                 # Opção para ir para a lista de pedidos
                 if st.button("View Orders List"):
@@ -2073,11 +2283,11 @@ def mostrar_view_pedido():
                 st.session_state.pagar_pedido = pedido
                 st.rerun()
         else:
-            st.info("Order already paid")
+            st.info("✅ Order already paid")
     
     with col_status_btn2:
         if pedido.get('delivery_status') != 'delivered':
-            if st.button("Mark as Delivered", use_container_width=True):
+            if st.button("Mark as Delivered", type="primary", use_container_width=True):
                 db = SessionLocal()
                 try:
                     order = db.query(Order).filter(Order.id == pedido['id']).first()
@@ -2086,16 +2296,32 @@ def mostrar_view_pedido():
                         order.delivered_at = datetime.now()
                         db.commit()
                         st.success("✅ Order marked as delivered!")
+                        # Atualizar o pedido na session_state
+                        st.session_state.view_pedido = order.to_dict()
+                        # Forçar recarregamento imediato
                         st.rerun()
+                except Exception as e:
+                    st.error(f"Error: {str(e)}")
                 finally:
                     db.close()
         else:
-            st.info("Order already delivered")
+            st.info("✅ Order already delivered")
     
     with col_status_btn3:
         if st.button("Generate Invoice", type="secondary", use_container_width=True):
-            st.warning("Invoice generation not implemented in this version")
-            # Implementar geração de nota fiscal futuramente
+            # Gerar PDF do pedido
+            pdf_path = gerar_nota_fiscal(pedido, cliente)
+            if pdf_path:
+                with open(pdf_path, "rb") as f:
+                    pdf_bytes = f.read()
+                
+                st.download_button(
+                    label="📄 Download Invoice",
+                    data=pdf_bytes,
+                    file_name=f"Nota_Pedido_{pedido.get('order_number', pedido.get('id', ''))}.pdf",
+                    mime="application/pdf",
+                    type="primary"
+                )
     
     # Seção para marcar como pago
     if st.session_state.get('pagar_pedido') == pedido:
@@ -2116,6 +2342,8 @@ def mostrar_view_pedido():
                         order.payment_method = forma_pagamento
                         order.paid_at = datetime.now()
                         db.commit()
+                        # Atualizar session_state
+                        st.session_state.view_pedido = order.to_dict()
                         del st.session_state.pagar_pedido
                         st.success("✅ Payment confirmed!")
                         st.rerun()
@@ -2128,8 +2356,7 @@ def mostrar_view_pedido():
                 st.rerun()
     
     # Botão para voltar
-    if st.button("Back to Orders List", type="secondary", use_container_width=True):
-        del st.session_state.view_pedido
+    if st.button("← Back to Orders List", type="secondary", use_container_width=True):
         if 'pagar_pedido' in st.session_state:
             del st.session_state.pagar_pedido
         st.session_state.current_page = "pedidos"
@@ -2407,6 +2634,7 @@ def main():
         
         # Contar pedidos pendentes
         pedidos_pendentes = []
+        pedidos_producao = []
         for pedido in data['pedidos']:
             if pedido.get('payment_status') != 'paid':
                 created_at = pedido.get('created_at')
@@ -2417,17 +2645,31 @@ def main():
                             pedidos_pendentes.append(pedido)
                     except:
                         pass
+            
+            # Pedidos pagos mas não entregues
+            if pedido.get('payment_status') == 'paid' and pedido.get('delivery_status') != 'delivered':
+                pedidos_producao.append(pedido)
         
-        pedidos_recentes = [p for p in data['pedidos'] if p.get('payment_status') != 'paid' and p not in pedidos_pendentes]
-        
-        if pedidos_pendentes or pedidos_recentes:
+        if pedidos_pendentes or pedidos_producao:
             st.subheader("📊 Quick Dashboard")
             
             if pedidos_pendentes:
                 st.error(f"⚠️ {len(pedidos_pendentes)} overdue orders!")
+                with st.expander("View overdue orders"):
+                    for p in pedidos_pendentes[:3]:  # Mostrar apenas 3
+                        cliente = next((c for c in data['clientes'] if c['id'] == p.get('customer_id')), None)
+                        cliente_nome = cliente['name'] if cliente else 'Unknown'
+                        st.write(f"• #{p.get('order_number')} - {cliente_nome} - {formatar_moeda(p.get('total_amount', 0))}")
+                    if len(pedidos_pendentes) > 3:
+                        st.write(f"... and {len(pedidos_pendentes) - 3} more")
             
-            if pedidos_recentes:
-                st.warning(f"⏳ {len(pedidos_recentes)} recent orders")
+            if pedidos_producao:
+                st.warning(f"⏳ {len(pedidos_producao)} orders in production")
+                with st.expander("View production orders"):
+                    for p in pedidos_producao[:3]:
+                        cliente = next((c for c in data['clientes'] if c['id'] == p.get('customer_id')), None)
+                        cliente_nome = cliente['name'] if cliente else 'Unknown'
+                        st.write(f"• #{p.get('order_number')} - {cliente_nome}")
         
         # Informações da sessão
         st.divider()
