@@ -1,3 +1,12 @@
+import sys
+import os
+
+# Forçar SQLite no Streamlit Cloud
+os.environ['STREAMLIT_CLOUD'] = 'true'
+
+print(f"🚀 Python Version: {sys.version}")
+print(f"🔧 Usando SQLite para compatibilidade com Streamlit Cloud")
+
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
