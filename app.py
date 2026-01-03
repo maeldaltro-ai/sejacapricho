@@ -1956,6 +1956,7 @@ def mostrar_pedidos():
         st.info("Nenhum pedido criado ainda. Crie seu primeiro pedido!")
 
 # --- TELA: NOVO PEDIDO ---
+
 @require_auth()
 def mostrar_novo_pedido():
     st.title("🛒 Novo Pedido")
@@ -1974,33 +1975,12 @@ def mostrar_novo_pedido():
         col1, col2 = st.columns(2)
         
         with col1:
-            # Seleção de cliente
-            clientes_options = [c['name'] for c in data['clientes']]
-            
-            if st.session_state.get('novo_pedido_cliente'):
-                cliente_pre_selecionado = st.session_state.novo_pedido_cliente['name']
-                cliente_selecionado = st.selectbox("Cliente *", clientes_options, 
-                                                  index=clientes_options.index(cliente_pre_selecionado) 
-                                                  if cliente_pre_selecionado in clientes_options else 0)
-            else:
-                cliente_selecionado = st.selectbox("Cliente *", clientes_options, key="cliente_selecionado")
-            
-            # Obter cliente selecionado - CORREÇÃO AQUI
-            cliente_atual = None
-            for c in data['clientes']:
-                if c['name'] == cliente_selecionado:
-                    cliente_atual = c
-                    break
-            
-            if cliente_atual:
-                st.write(f"**Documento:** {cliente_atual.get('document', 'N/A')}")
-                st.write(f"**Endereço:** {cliente_atual.get('address', 'N/A')}")
-                if cliente_atual.get('phone'):
-                    st.write(f"**Telefone:** {cliente_atual['phone']}")
-            
-            prazo_entrega = st.text_input("Prazo de Entrega", value="5 dias úteis")
+            # Seleção de cliente - FORA DO FORMULÁRIO para atualização dinâmica
+            # Primeiro, vamos remover a seleção do cliente do formulário
+            pass
         
         with col2:
+            prazo_entrega = st.text_input("Prazo de Entrega", value="5 dias úteis")
             tipo_entrega = st.radio("Tipo de Entrega", ["Pronta Entrega", "Sob Encomenda"])
             forma_pagamento = st.selectbox("Forma de Pagamento", 
                                           ["Não Definido", "Dinheiro", "Cartão de Crédito", 
@@ -2079,6 +2059,48 @@ def mostrar_novo_pedido():
         
         with col_btn3:
             cancel_clicked = st.form_submit_button("Cancelar", type="secondary", use_container_width=True)
+    
+    # SELEÇÃO DO CLIENTE FORA DO FORMULÁRIO (para atualização dinâmica)
+    st.subheader("👤 Seleção do Cliente")
+    
+    clientes_options = [c['name'] for c in data['clientes']]
+    
+    if st.session_state.get('novo_pedido_cliente'):
+        cliente_pre_selecionado = st.session_state.novo_pedido_cliente['name']
+        index = clientes_options.index(cliente_pre_selecionado) if cliente_pre_selecionado in clientes_options else 0
+    else:
+        index = 0
+    
+    # Selectbox de cliente FORA do formulário para permitir atualização dinâmica
+    cliente_selecionado = st.selectbox(
+        "Cliente *", 
+        clientes_options,
+        index=index,
+        key="cliente_selecionado_novo_pedido"
+    )
+    
+    # Obter cliente selecionado
+    cliente_atual = None
+    for c in data['clientes']:
+        if c['name'] == cliente_selecionado:
+            cliente_atual = c
+            break
+    
+    # Mostrar informações do cliente dinamicamente
+    if cliente_atual:
+        st.info(f"""
+        **📋 Dados do Cliente Selecionado:**
+        
+        **Nome:** {cliente_atual.get('name', 'N/A')}
+        **Documento:** {cliente_atual.get('document', 'N/A')}
+        **Endereço:** {cliente_atual.get('address', 'N/A')}
+        **Telefone:** {cliente_atual.get('phone', 'N/A')}
+        **Email:** {cliente_atual.get('email', 'N/A')}
+        """)
+    else:
+        st.warning("Nenhum cliente selecionado ou cliente não encontrado!")
+    
+    st.divider()
     
     # Processar ações APÓS o formulário
     if cancel_clicked:
@@ -2191,7 +2213,6 @@ def mostrar_novo_pedido():
                 st.error(f"Erro ao salvar pedido: {str(e)}")
             finally:
                 db.close()
-
 # --- TELA: VER PEDIDO ---
 @require_auth()
 def mostrar_ver_pedido():
