@@ -3,8 +3,9 @@ from datetime import datetime, timedelta
 from typing import Optional
 import jwt
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 from models import User, SessionLocal
-from security import verify_password, hash_password
+from security import verify_password, hash_password, validate_email
 
 # Configurações JWT - fallback se config.py não existir
 try:
@@ -25,13 +26,26 @@ class AuthSystem:
     def register_user(self, username: str, email: str, password: str, full_name: str = None) -> tuple[bool, str]:
         """Registra um novo usuário"""
         try:
+            # Normalizar dados
+            username = username.strip().lower()
+            email = email.strip().lower()
+            
+            if not validate_email(email):
+                return False, "Email inválido"
+            
             # Verificar se o usuário já existe
             existing_user = self.session.query(User).filter(
-                (User.username == username) | (User.email == email)
+                or_(
+                    User.username.ilike(username),
+                    User.email.ilike(email)
+                )
             ).first()
             
             if existing_user:
-                return False, "Usuário ou email já cadastrado"
+                if existing_user.username.lower() == username.lower():
+                    return False, "Nome de usuário já cadastrado"
+                else:
+                    return False, "Email já cadastrado"
             
             # Validar senha
             if len(password) < 6:
@@ -42,14 +56,14 @@ class AuthSystem:
                 username=username,
                 email=email,
                 password_hash=hash_password(password),
-                full_name=full_name,
+                full_name=full_name.strip() if full_name else None,
                 is_active=True,
                 is_admin=False  # Primeiro usuário não é admin por padrão
             )
             
             self.session.add(new_user)
             self.session.commit()
-            return True, "Usuário registrado com sucesso"
+            return True, "Usuário registrado com sucesso!"
             
         except Exception as e:
             self.session.rollback()
@@ -58,8 +72,15 @@ class AuthSystem:
     def login_user(self, username: str, password: str) -> tuple[bool, Optional[User], str]:
         """Autentica um usuário"""
         try:
+            # Normalizar entrada
+            username_input = username.strip().lower()
+            
+            # Buscar usuário por username ou email (case-insensitive)
             user = self.session.query(User).filter(
-                (User.username == username) | (User.email == username),
+                or_(
+                    User.username.ilike(username_input),
+                    User.email.ilike(username_input)
+                ),
                 User.is_active == True
             ).first()
             
@@ -119,7 +140,7 @@ class AuthSystem:
             
             user.password_hash = hash_password(new_password)
             self.session.commit()
-            return True, "Senha atualizada com sucesso"
+            return True, "Senha atualizada com sucesso!"
             
         except Exception as e:
             self.session.rollback()
@@ -127,10 +148,14 @@ class AuthSystem:
     
     def logout_user(self):
         """Limpa a sessão do usuário"""
-        if 'auth_token' in st.session_state:
-            del st.session_state.auth_token
-        if 'current_user' in st.session_state:
-            del st.session_state.current_user
+        keys_to_remove = ['auth_token', 'current_user', 'current_page', 'selected_products', 'manual_items']
+        for key in keys_to_remove:
+            if key in st.session_state:
+                del st.session_state[key]
+    
+    def get_all_users(self):
+        """Retorna todos os usuários (apenas para admin)"""
+        return self.session.query(User).all()
     
     def __del__(self):
         self.session.close()
@@ -142,67 +167,77 @@ def show_login_register_page():
     """Mostra a página de login/registro"""
     st.title("🔐 DTF Pricing Calculator - Login")
     
+    # Verificar se já está logado
+    if 'auth_token' in st.session_state and 'current_user' in st.session_state:
+        st.success("Você já está logado!")
+        if st.button("Ir para o Dashboard"):
+            st.session_state.current_page = "calculator"
+            st.rerun()
+        return
+    
     tab1, tab2 = st.tabs(["Login", "Registro"])
     
     with tab1:
-        # Formulário de Login - CORRIGIDO
-        login_form = st.form(key="login_form")
+        st.subheader("Login")
         
-        with login_form:
-            username = st.text_input("Usuário ou Email")
-            password = st.text_input("Senha", type="password")
-            submit_button = st.form_submit_button("Entrar")
+        # Formulário de Login
+        with st.form("login_form"):
+            username = st.text_input("Usuário ou Email", value="")
+            password = st.text_input("Senha", type="password", value="")
+            submit_login = st.form_submit_button("Entrar")
         
-        # Processamento do login (fora do formulário)
-        if submit_button:
-            if username and password:
-                success, user, token = auth_system.login_user(username, password)
-                if success and user:
-                    st.session_state.auth_token = token
-                    st.session_state.current_user = user.to_dict()
-                    st.success("Login realizado com sucesso!")
-                    st.rerun()
-                else:
-                    st.error(f"Falha no login: {token if not success else 'Erro desconhecido'}")
+        if submit_login:
+            if not username or not password:
+                st.error("Preencha todos os campos")
             else:
-                st.warning("Preencha todos os campos")
-    
-    with tab2:
-        # Formulário de Registro - CORRIGIDO
-        register_form = st.form(key="register_form")
-        
-        with register_form:
-            col1, col2 = st.columns(2)
-            with col1:
-                username = st.text_input("Nome de usuário")
-                email = st.text_input("Email")
-            with col2:
-                full_name = st.text_input("Nome completo")
-                password = st.text_input("Senha", type="password")
-                confirm_password = st.text_input("Confirmar Senha", type="password")
-            
-            submit_button = st.form_submit_button("Registrar")
-        
-        # Processamento do registro (fora do formulário)
-        if submit_button:
-            if not all([username, email, password, confirm_password]):
-                st.warning("Preencha todos os campos obrigatórios")
-            elif password != confirm_password:
-                st.error("As senhas não coincidem")
-            elif len(password) < 6:
-                st.error("A senha deve ter pelo menos 6 caracteres")
-            else:
-                success, message = auth_system.register_user(username, email, password, full_name)
-                if success:
-                    st.success(message)
-                    # Auto-login após registro
+                with st.spinner("Autenticando..."):
                     success, user, token = auth_system.login_user(username, password)
                     if success and user:
                         st.session_state.auth_token = token
                         st.session_state.current_user = user.to_dict()
+                        st.session_state.current_page = "calculator"
+                        st.success("Login realizado com sucesso!")
                         st.rerun()
-                else:
-                    st.error(message)
+                    else:
+                        st.error(f"Falha no login: {token}")
+    
+    with tab2:
+        st.subheader("Registro")
+        
+        # Formulário de Registro
+        with st.form("register_form"):
+            col1, col2 = st.columns(2)
+            with col1:
+                new_username = st.text_input("Nome de usuário")
+                new_email = st.text_input("Email")
+            with col2:
+                new_full_name = st.text_input("Nome completo")
+                new_password = st.text_input("Senha", type="password")
+                confirm_password = st.text_input("Confirmar Senha", type="password")
+            
+            submit_register = st.form_submit_button("Registrar")
+        
+        if submit_register:
+            if not all([new_username, new_email, new_password, confirm_password]):
+                st.error("Preencha todos os campos obrigatórios")
+            elif new_password != confirm_password:
+                st.error("As senhas não coincidem")
+            elif len(new_password) < 6:
+                st.error("A senha deve ter pelo menos 6 caracteres")
+            else:
+                with st.spinner("Registrando..."):
+                    success, message = auth_system.register_user(new_username, new_email, new_password, new_full_name)
+                    if success:
+                        st.success(message)
+                        # Auto-login após registro
+                        success, user, token = auth_system.login_user(new_username, new_password)
+                        if success and user:
+                            st.session_state.auth_token = token
+                            st.session_state.current_user = user.to_dict()
+                            st.session_state.current_page = "calculator"
+                            st.rerun()
+                    else:
+                        st.error(message)
 
 def require_auth():
     """Decorador para requerer autenticação"""
@@ -240,3 +275,21 @@ def is_admin():
     """Verifica se o usuário atual é admin"""
     user = get_current_user()
     return user.get('is_admin', False)
+
+# Função para reset de senha (se necessário)
+def show_password_reset():
+    """Mostra página de reset de senha"""
+    st.title("🔐 Recuperar Senha")
+    
+    email = st.text_input("Digite seu email")
+    
+    if st.button("Enviar link de recuperação"):
+        if email:
+            # Implementar lógica de envio de email de recuperação
+            st.info("Funcionalidade de recuperação de senha em desenvolvimento.")
+        else:
+            st.error("Digite seu email")
+    
+    if st.button("Voltar para login"):
+        st.session_state.current_page = "login"
+        st.rerun()
