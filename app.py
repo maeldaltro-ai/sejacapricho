@@ -1,24 +1,22 @@
 import streamlit as st
-import json
 import pandas as pd
-import os
 from datetime import datetime, timedelta
-import math
+import json
+import tempfile
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image as RLImage
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import inch
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
-import tempfile
 
-# Configuração da Página
-st.set_page_config(
-    page_title="DTF Pricing Calculator",
-    page_icon="🖨️",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+# Importações do nosso sistema
+from auth import require_auth, get_current_user, show_login_register_page, auth_system, is_admin
+from models import init_db, get_db, SessionLocal, User, Product, Customer, Supplier, Order, Budget, SystemConfig
+from utils.security import hash_password, verify_password, validate_email, validate_password_strength
+from config import config
+
+# Inicializar banco de dados
+init_db()
 
 # --- CONSTANTES E CORES ---
 COLOR_PURPLE = "#9370DB"
@@ -35,149 +33,51 @@ COLOR_YELLOW = "#FFD700"
 COLOR_BLUE = "#1F6FEB"
 
 # --- FUNÇÕES UTILITÁRIAS ---
-@st.cache_data
 def carregar_dados():
-    """Carrega os dados do arquivo JSON"""
+    """Carrega dados do banco de dados para o contexto atual"""
+    db = SessionLocal()
     try:
-        with open('dados_sistema.json', 'r', encoding='utf-8') as f:
-            data = json.load(f)
-            # Garantir estrutura básica
-            if "config" not in data:
-                data["config"] = {
-                    "preco_metro": 80.0,
-                    "largura_rolo": 58.0,
-                    "labels": {
-                        "energia": "Energy (R$)",
-                        "transporte": "Transport (R$)",
-                        "embalagem": "Packaging (R$)"
-                    },
-                    "fixed_costs": {
-                        "energia": 1.0,
-                        "transporte": 2.0,
-                        "embalagem": 1.0
-                    }
-                }
-            if "produtos" not in data:
-                data["produtos"] = []
-            if "orcamentos" not in data:
-                data["orcamentos"] = []
-            if "clientes" not in data:
-                data["clientes"] = []
-            if "fornecedores" not in data:
-                data["fornecedores"] = []
-            if "pedidos" not in data:
-                data["pedidos"] = []
-            if "ultimo_numero_orcamento" not in data:
-                data["ultimo_numero_orcamento"] = 0
-            if "ultimo_id_cliente" not in data:
-                data["ultimo_id_cliente"] = 0
-            if "ultimo_id_fornecedor" not in data:
-                data["ultimo_id_fornecedor"] = 0
-            if "ultimo_id_pedido" not in data:
-                data["ultimo_id_pedido"] = 0
-            return data
-    except FileNotFoundError:
-        # Criar estrutura padrão se arquivo não existir
-        default_data = {
-            "config": {
-                "preco_metro": 80.0,
-                "largura_rolo": 58.0,
-                "labels": {
-                    "energia": "Energy (R$)",
-                    "transporte": "Transport (R$)",
-                    "embalagem": "Packaging (R$)"
-                },
-                "fixed_costs": {
-                    "energia": 1.0,
-                    "transporte": 2.0,
-                    "embalagem": 1.0
-                }
-            },
-            "produtos": [
-                {
-                    "nome": "Camisa Classic",
-                    "custo": 18.99,
-                    "energia": 0.0,
-                    "transp": 0.0,
-                    "emb": 0.0,
-                    "usa_dtf": True
-                },
-                {
-                    "nome": "Cropped Algodão",
-                    "custo": 24.9,
-                    "energia": 0.0,
-                    "transp": 0.0,
-                    "emb": 0.0,
-                    "usa_dtf": True
-                },
-                {
-                    "nome": "Cropped Touch",
-                    "custo": 26.99,
-                    "energia": 0.0,
-                    "transp": 0.0,
-                    "emb": 0.0,
-                    "usa_dtf": True
-                },
-                {
-                    "nome": "Camisa Premium REV",
-                    "custo": 34.2,
-                    "energia": 0.0,
-                    "transp": 0.0,
-                    "emb": 0.0,
-                    "usa_dtf": False
-                },
-                {
-                    "nome": "Camisa Premium",
-                    "custo": 26.5,
-                    "energia": 0.0,
-                    "transp": 0.0,
-                    "emb": 0.0,
-                    "usa_dtf": True
-                },
-                {
-                    "nome": "Camisa Classic REV",
-                    "custo": 30.0,
-                    "energia": 0.0,
-                    "transp": 0.0,
-                    "emb": 0.0,
-                    "usa_dtf": False
-                },
-                {
-                    "nome": "EcoBag 32x40",
-                    "custo": 9.0,
-                    "energia": 0.0,
-                    "transp": 0.0,
-                    "emb": 0.0,
-                    "usa_dtf": True
-                }
-            ],
-            "orcamentos": [],
-            "clientes": [],
-            "fornecedores": [],
-            "pedidos": [],
-            "ultimo_numero_orcamento": 0,
-            "ultimo_id_cliente": 0,
-            "ultimo_id_fornecedor": 0,
-            "ultimo_id_pedido": 0
+        # Obter configurações do sistema
+        configs = {}
+        system_configs = db.query(SystemConfig).all()
+        for cfg in system_configs:
+            configs[cfg.key] = cfg.get_value()
+        
+        # Obter produtos
+        products = [p.to_dict() for p in db.query(Product).filter(Product.is_active == True).all()]
+        
+        # Obter orçamentos
+        budgets = [b.to_dict() for b in db.query(Budget).all()]
+        
+        # Obter clientes
+        customers = [c.to_dict() for c in db.query(Customer).all()]
+        
+        # Obter fornecedores
+        suppliers = [s.to_dict() for s in db.query(Supplier).all()]
+        
+        # Obter pedidos
+        orders = [o.to_dict() for o in db.query(Order).all()]
+        
+        return {
+            "config": configs,
+            "produtos": products,
+            "orcamentos": budgets,
+            "clientes": customers,
+            "fornecedores": suppliers,
+            "pedidos": orders,
+            "ultimo_numero_orcamento": max([b.get('budget_number', 0) for b in budgets], default=0),
+            "ultimo_id_cliente": max([c.get('id', 0) for c in customers], default=0),
+            "ultimo_id_fornecedor": max([s.get('id', 0) for s in suppliers], default=0),
+            "ultimo_id_pedido": max([o.get('id', 0) for o in orders], default=0),
         }
-        with open('dados_sistema.json', 'w', encoding='utf-8') as f:
-            json.dump(default_data, f, indent=4)
-        return default_data
+    finally:
+        db.close()
 
 def salvar_dados(data):
-    """Salva os dados no arquivo JSON"""
-    with open('dados_sistema.json', 'w', encoding='utf-8') as f:
-        json.dump(data, f, indent=4, ensure_ascii=False)
-
-def parse_number(value_str):
-    """Converte string para número"""
-    if not value_str or str(value_str).strip() == "":
-        return 0.0
-    try:
-        cleaned = str(value_str).strip().replace(',', '.')
-        return float(cleaned)
-    except ValueError:
-        return 0.0
+    """Salva os dados no banco de dados"""
+    # Esta função é mantida para compatibilidade com código existente
+    # Mas agora os dados são salvos diretamente no banco em cada operação
+    pass
 
 def formatar_moeda(valor):
     """Formata valor em moeda brasileira"""
@@ -197,39 +97,212 @@ def formatar_cnpj(cnpj):
         return cnpj
     return f"{cnpj[:2]}.{cnpj[2:5]}.{cnpj[5:8]}/{cnpj[8:12]}-{cnpj[12:]}"
 
-def validar_cpf(cpf):
-    """Valida CPF"""
-    cpf = str(cpf).replace(".", "").replace("-", "")
-    if len(cpf) != 11 or not cpf.isdigit():
-        return False
-    # Validar dígitos verificadores
-    # Implementação básica
-    return True
-
-def validar_cnpj(cnpj):
-    """Valida CNPJ"""
-    cnpj = str(cnpj).replace(".", "").replace("-", "").replace("/", "")
-    if len(cnpj) != 14 or not cnpj.isdigit():
-        return False
-    # Validar dígitos verificadores
-    # Implementação básica
-    return True
-
 def get_cor_status_pedido(pedido):
     """Retorna a cor baseada no status do pedido"""
     agora = datetime.now()
-    data_criacao = datetime.strptime(pedido['data_criacao'], "%d/%m/%Y %H:%M")
+    data_criacao = datetime.fromisoformat(pedido['created_at']) if 'created_at' in pedido else datetime.now()
     
-    if pedido.get('entregue', False):
+    if pedido.get('delivery_status') == 'delivered':
         return COLOR_BLUE  # Azul para entregue
-    elif pedido.get('pago', False):
+    elif pedido.get('payment_status') == 'paid':
         return COLOR_GREEN  # Verde para pago
     elif (agora - data_criacao) > timedelta(hours=24):
         return COLOR_RED  # Vermelho para pendente > 24h
     else:
         return COLOR_YELLOW  # Amarelo para recente
 
+def gerar_pdf(orcamento):
+    """Gera PDF para um orçamento"""
+    try:
+        # Criar arquivo temporário
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
+        pdf_path = temp_file.name
+        temp_file.close()
+        
+        # Criar documento
+        doc = SimpleDocTemplate(pdf_path, pagesize=A4, 
+                               rightMargin=72, leftMargin=72,
+                               topMargin=72, bottomMargin=72)
+        
+        elements = []
+        styles = getSampleStyleSheet()
+        
+        # Estilos personalizados
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=16,
+            alignment=TA_CENTER,
+            spaceAfter=12
+        )
+        
+        # Título
+        title = Paragraph(f"ORÇAMENTO #{orcamento.get('budget_number', orcamento.get('numero', ''))}", title_style)
+        elements.append(title)
+        elements.append(Spacer(1, 12))
+        
+        # Informações da empresa
+        empresa_info = [
+            ["Criatividade, Personalidade e muito Capricho!", ""],
+            ["DTF Pricing Calculator", ""],
+            [f"Data: {orcamento.get('created_at', orcamento.get('data', ''))}", ""]
+        ]
+        
+        empresa_table = Table(empresa_info, colWidths=[doc.width/2.0]*2)
+        empresa_table.setStyle(TableStyle([
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (0, 1), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+        ]))
+        
+        elements.append(empresa_table)
+        elements.append(Spacer(1, 20))
+        
+        # Dados do Cliente
+        cliente_data = [
+            ["DADOS DO CLIENTE", ""],
+            ["Cliente:", orcamento.get('client_name', orcamento.get('cliente', ''))],
+            ["Endereço:", orcamento.get('address', orcamento.get('endereco', ''))],
+            ["Tipo de Entrega:", orcamento.get('delivery_type', orcamento.get('tipo_entrega', ''))],
+            ["Tipo de Venda:", orcamento.get('sale_type', orcamento.get('tipo_venda', ''))],
+            ["Prazo de Produção:", orcamento.get('production_deadline', orcamento.get('prazo_producao', ''))]
+        ]
+        
+        cliente_table = Table(cliente_data, colWidths=[doc.width/3.0, doc.width*2/3.0])
+        cliente_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor(COLOR_PURPLE)),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 12),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#f5f5f5')),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('ALIGN', (0, 1), (0, -1), 'LEFT'),
+            ('ALIGN', (1, 1), (1, -1), 'LEFT'),
+            ('FONTSIZE', (0, 1), (-1, -1), 10),
+            ('PADDING', (0, 1), (-1, -1), 6),
+        ]))
+        
+        elements.append(cliente_table)
+        elements.append(Spacer(1, 20))
+        
+        # Itens do Orçamento
+        items_data = [["ITENS DO ORÇAMENTO", "", "", ""], 
+                     ["Produto", "Quantidade", "Valor Unitário (R$)", "Valor Total (R$)"]]
+        
+        items = orcamento.get('items', [])
+        if isinstance(items, str):
+            items = json.loads(items)
+        
+        for item in items:
+            item_total = float(item.get('valor_unitario', item.get('unit_price', 0))) * float(item.get('quantidade', item.get('quantity', 0)))
+            items_data.append([
+                item.get('nome', item.get('name', '')),
+                f"{item.get('quantidade', item.get('quantity', 0)):.0f}",
+                formatar_moeda(item.get('valor_unitario', item.get('unit_price', 0))),
+                formatar_moeda(item_total)
+            ])
+        
+        items_table = Table(items_data, colWidths=[doc.width*0.4, doc.width*0.2, doc.width*0.2, doc.width*0.2])
+        items_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor(COLOR_ORANGE)),
+            ('BACKGROUND', (0, 1), (-1, 1), colors.HexColor(COLOR_SLATE)),
+            ('TEXTCOLOR', (0, 0), (-1, 1), colors.white),
+            ('ALIGN', (0, 0), (-1, 1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 1), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 1), 11),
+            ('BOTTOMPADDING', (0, 0), (-1, 1), 8),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('ALIGN', (0, 2), (-1, 2), 'CENTER'),
+            ('BACKGROUND', (0, 2), (-1, 2), colors.HexColor('#f9f9f9')),
+            ('FONTSIZE', (0, 2), (-1, 2), 10),
+            ('PADDING', (0, 2), (-1, 2), 8),
+        ]))
+        
+        elements.append(items_table)
+        elements.append(Spacer(1, 20))
+        
+        # Resumo
+        resumo_data = [
+            ["RESUMO DO ORÇAMENTO", ""],
+            ["Valor Total:", formatar_moeda(orcamento.get('total_amount', orcamento.get('valor_total', 0)))]
+        ]
+        
+        resumo_table = Table(resumo_data, colWidths=[doc.width/2.0]*2)
+        resumo_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor(COLOR_GREEN)),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 12),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('ALIGN', (0, 1), (0, -1), 'LEFT'),
+            ('ALIGN', (1, 1), (1, -1), 'RIGHT'),
+            ('FONTSIZE', (0, 1), (-1, -1), 11),
+            ('PADDING', (0, 1), (-1, -1), 8),
+            ('BACKGROUND', (1, 1), (1, 1), colors.HexColor('#f0f8ff')),
+        ]))
+        
+        elements.append(resumo_table)
+        
+        # Observações (se existirem)
+        if orcamento.get('observacoes') or orcamento.get('notes'):
+            elements.append(Spacer(1, 20))
+            obs_text = orcamento.get('observacoes') or orcamento.get('notes', '')
+            obs_data = [
+                ["OBSERVAÇÕES"],
+                [obs_text]
+            ]
+            
+            obs_table = Table(obs_data, colWidths=[doc.width])
+            obs_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor(COLOR_GRAY)),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 11),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black),
+                ('ALIGN', (0, 1), (-1, 1), 'LEFT'),
+                ('FONTSIZE', (0, 1), (-1, 1), 10),
+                ('PADDING', (0, 1), (-1, 1), 8),
+                ('BACKGROUND', (0, 1), (-1, 1), colors.HexColor('#f5f5f5')),
+            ]))
+            
+            elements.append(obs_table)
+        
+        # Rodapé
+        elements.append(Spacer(1, 30))
+        rodape = Paragraph(
+            "CONDIÇÕES E INFORMAÇÕES ADICIONAIS<br/>"
+            "1. Este orçamento tem validade de 30 dias a partir da data de emissão.<br/>"
+            "2. O prazo de produção começa a contar após a confirmação do pedido e pagamento.<br/>"
+            "3. Preços sujeitos a alteração sem aviso prévio.<br/>"
+            "4. Para dúvidas, acesse nossos canais de atendimento.<br/>"
+            "(75) 9155-5968 | @sejacapricho | sejacapricho.com.br",
+            ParagraphStyle(
+                'Rodape',
+                parent=styles['Normal'],
+                fontSize=9,
+                alignment=TA_CENTER,
+                textColor=colors.gray
+            )
+        )
+        elements.append(rodape)
+        
+        # Construir PDF
+        doc.build(elements)
+        return pdf_path
+        
+    except Exception as e:
+        st.error(f"Error generating PDF: {str(e)}")
+        return None
+
 # --- TELA: CALCULATOR ---
+@require_auth()
 def mostrar_calculator():
     st.title("📱 Calculator - New Estimate")
     
@@ -237,7 +310,7 @@ def mostrar_calculator():
     if 'selected_products' not in st.session_state:
         st.session_state.selected_products = []
     
-    data = st.session_state.data
+    data = carregar_dados()
     
     col1, col2 = st.columns([3, 2])
     
@@ -284,7 +357,7 @@ def mostrar_calculator():
             with qtd_cols[0]:
                 quantidade = st.number_input("Quantity", min_value=1, value=1)
             with qtd_cols[1]:
-                margem = st.number_input("Margin %", min_value=0.0, value=50.0, step=1.0)
+                margem = st.number_input("Margin %", min_value=0.0, value=data['config'].get('default_margin', 50.0), step=1.0)
             
             # Botão calcular
             if st.button("Calculate Price", type="primary", use_container_width=True):
@@ -296,33 +369,33 @@ def mostrar_calculator():
                 # Cálculo DTF
                 custo_dtf = 0
                 if usa_dtf and area_total > 0:
-                    preco_metro = data['config']['preco_metro']
-                    largura_rolo = data['config']['largura_rolo']
-                    area_metro_linear = largura_rolo * 100  # cm² por metro linear
+                    preco_metro = data['config'].get('dtf_price_per_meter', 80.0)
+                    largura_rolo = data['config'].get('roll_width', 58.0)
+                    altura_rolo = data['config'].get('roll_height', 100)
+                    area_metro_linear = largura_rolo * altura_rolo
                     custo_cm2 = preco_metro / area_metro_linear
                     custo_dtf = area_total * custo_cm2
                 
                 # Custos fixos
                 custos_fixos = 0
                 if incluir_custos_fixos:
-                    custos_fixos = (produto_atual.get('energia', 0) + 
-                                   produto_atual.get('transp', 0) + 
-                                   produto_atual.get('emb', 0))
+                    custos_fixos = (produto_atual.get('energy_cost', produto_atual.get('energia', 0)) + 
+                                   produto_atual.get('transport_cost', produto_atual.get('transp', 0)) + 
+                                   produto_atual.get('packaging_cost', produto_atual.get('emb', 0)))
                     
                     # Adicionar custos fixos globais
-                    cfg = data['config']['fixed_costs']
-                    custos_fixos += (cfg.get('energia', 0) + 
-                                    cfg.get('transporte', 0) + 
-                                    cfg.get('embalagem', 0))
+                    custos_fixos += (data['config'].get('energy_cost_value', 1.0) + 
+                                    data['config'].get('transport_cost_value', 2.0) + 
+                                    data['config'].get('packaging_cost_value', 1.0))
                 
                 # Cálculo final
-                custo_unitario = produto_atual['custo'] + custo_dtf + custos_fixos
+                custo_unitario = produto_atual.get('custo', produto_atual.get('cost', 0)) + custo_dtf + custos_fixos
                 preco_unitario = custo_unitario * (1 + margem / 100)
                 preco_total = preco_unitario * quantidade
                 
                 # Armazenar resultado na session
                 st.session_state.calculation_result = {
-                    'produto': produto_atual['nome'],
+                    'produto': produto_atual.get('nome', produto_atual.get('name', '')),
                     'preco_unitario': preco_unitario,
                     'quantidade': quantidade,
                     'preco_total': preco_total,
@@ -394,59 +467,65 @@ def mostrar_calculator():
             st.info("No products selected yet")
 
 # --- TELA: PRODUCTS ---
+@require_auth()
 def mostrar_products():
     st.title("📦 Product Management")
     
-    data = st.session_state.data
+    data = carregar_dados()
+    db = SessionLocal()
     
-    # Formulário para adicionar/editar produto
-    with st.expander("Add/Edit Product", expanded=True):
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            nome = st.text_input("Product Name")
-            custo = st.number_input("Cost (R$)", min_value=0.0, value=0.0, step=0.1)
-        
-        with col2:
-            energia = st.number_input("Energy (R$)", min_value=0.0, value=0.0, step=0.1)
-            transporte = st.number_input("Transport (R$)", min_value=0.0, value=0.0, step=0.1)
-        
-        with col3:
-            embalagem = st.number_input("Packaging (R$)", min_value=0.0, value=0.0, step=0.1)
-            usa_dtf = st.checkbox("Use DTF", value=True)
-        
-        col_btn1, col_btn2 = st.columns(2)
-        with col_btn1:
-            if st.button("Add Product", type="primary", use_container_width=True):
-                if nome.strip():
-                    # Verificar se produto já existe
-                    produto_existente = None
-                    for i, p in enumerate(data['produtos']):
-                        if p['nome'].lower() == nome.strip().lower():
-                            produto_existente = i
-                            break
-                    
-                    novo_produto = {
-                        "nome": nome.strip(),
-                        "custo": custo,
-                        "energia": energia,
-                        "transp": transporte,
-                        "emb": embalagem,
-                        "usa_dtf": usa_dtf
-                    }
-                    
-                    if produto_existente is not None:
-                        data['produtos'][produto_existente] = novo_produto
-                        st.success(f"Product '{nome}' updated!")
+    try:
+        # Formulário para adicionar/editar produto
+        with st.expander("Add/Edit Product", expanded=True):
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                nome = st.text_input("Product Name")
+                custo = st.number_input("Cost (R$)", min_value=0.0, value=0.0, step=0.1)
+            
+            with col2:
+                energia = st.number_input("Energy (R$)", min_value=0.0, value=0.0, step=0.1)
+                transporte = st.number_input("Transport (R$)", min_value=0.0, value=0.0, step=0.1)
+            
+            with col3:
+                embalagem = st.number_input("Packaging (R$)", min_value=0.0, value=0.0, step=0.1)
+                usa_dtf = st.checkbox("Use DTF", value=True)
+            
+            col_btn1, col_btn2 = st.columns(2)
+            with col_btn1:
+                if st.button("Add Product", type="primary", use_container_width=True):
+                    if nome.strip():
+                        # Verificar se produto já existe
+                        produto_existente = db.query(Product).filter(Product.name.ilike(nome.strip())).first()
+                        
+                        current_user = get_current_user()
+                        
+                        if produto_existente:
+                            produto_existente.name = nome.strip()
+                            produto_existente.cost = custo
+                            produto_existente.energy_cost = energia
+                            produto_existente.transport_cost = transporte
+                            produto_existente.packaging_cost = embalagem
+                            produto_existente.uses_dtf = usa_dtf
+                            st.success(f"Product '{nome}' updated!")
+                        else:
+                            novo_produto = Product(
+                                name=nome.strip(),
+                                cost=custo,
+                                energy_cost=energia,
+                                transport_cost=transporte,
+                                packaging_cost=embalagem,
+                                uses_dtf=usa_dtf
+                            )
+                            db.add(novo_produto)
+                            st.success(f"Product '{nome}' added!")
+                        
+                        db.commit()
+                        st.rerun()
                     else:
-                        data['produtos'].append(novo_produto)
-                        st.success(f"Product '{nome}' added!")
-                    
-                    salvar_dados(data)
-                    st.session_state.data = data
-                    st.rerun()
-                else:
-                    st.error("Product name is required")
+                        st.error("Product name is required")
+    finally:
+        db.close()
     
     # Lista de produtos
     st.subheader("Product List")
@@ -457,11 +536,11 @@ def mostrar_products():
         for p in data['produtos']:
             produtos_data.append({
                 "Product": p['nome'],
-                "Cost": formatar_moeda(p['custo']),
-                "DTF": "✓" if p['usa_dtf'] else "✗",
-                "Energy": formatar_moeda(p['energia']),
-                "Transport": formatar_moeda(p['transp']),
-                "Packaging": formatar_moeda(p['emb'])
+                "Cost": formatar_moeda(p.get('custo', p.get('cost', 0))),
+                "DTF": "✓" if p.get('usa_dtf', p.get('uses_dtf', False)) else "✗",
+                "Energy": formatar_moeda(p.get('energy_cost', p.get('energia', 0))),
+                "Transport": formatar_moeda(p.get('transport_cost', p.get('transp', 0))),
+                "Packaging": formatar_moeda(p.get('packaging_cost', p.get('emb', 0)))
             })
         
         df = pd.DataFrame(produtos_data)
@@ -487,28 +566,35 @@ def mostrar_products():
             
             with col_del:
                 if st.button("Delete Product", type="secondary", use_container_width=True):
-                    data['produtos'] = [p for p in data['produtos'] if p['nome'] != produto_para_gerenciar]
-                    salvar_dados(data)
-                    st.session_state.data = data
-                    st.success(f"Product '{produto_para_gerenciar}' deleted!")
-                    st.rerun()
+                    db = SessionLocal()
+                    try:
+                        produto = db.query(Product).filter(Product.name == produto_para_gerenciar).first()
+                        if produto:
+                            produto.is_active = False
+                            db.commit()
+                            st.success(f"Product '{produto_para_gerenciar}' deleted!")
+                            st.rerun()
+                    finally:
+                        db.close()
     else:
         st.info("No products registered. Add your first product above.")
 
 # --- TELA: ORÇAMENTOS ---
+@require_auth()
 def mostrar_orcamentos():
     st.title("📋 Budgets")
     
-    data = st.session_state.data
+    data = carregar_dados()
     
     # Estatísticas
     col_stats1, col_stats2, col_stats3 = st.columns(3)
     with col_stats1:
         st.metric("Total Budgets", len(data['orcamentos']))
     with col_stats2:
-        st.metric("Last Number", f"#{data['ultimo_numero_orcamento']:04d}")
+        last_number = data['ultimo_numero_orcamento']
+        st.metric("Last Number", f"#{last_number:04d}")
     with col_stats3:
-        total_valor = sum(o['valor_total'] for o in data['orcamentos'])
+        total_valor = sum(o.get('total_amount', o.get('valor_total', 0)) for o in data['orcamentos'])
         st.metric("Total Value", formatar_moeda(total_valor))
     
     # Botão para novo orçamento
@@ -521,7 +607,7 @@ def mostrar_orcamentos():
     
     if data['orcamentos']:
         # Ordenar por número (mais recente primeiro)
-        orcamentos_ordenados = sorted(data['orcamentos'], key=lambda x: x['numero'], reverse=True)
+        orcamentos_ordenados = sorted(data['orcamentos'], key=lambda x: x.get('budget_number', x.get('numero', 0)), reverse=True)
         
         for orcamento in orcamentos_ordenados:
             with st.container():
@@ -529,31 +615,37 @@ def mostrar_orcamentos():
                 
                 with col_info:
                     # Determinar produto/itens
-                    if 'produto' in orcamento:
-                        produto_info = orcamento['produto']
-                        quantidade = orcamento.get('quantidade', 0)
-                    elif 'itens' in orcamento and orcamento['itens']:
-                        if len(orcamento['itens']) > 1:
-                            produto_info = f"Multiple Items ({len(orcamento['itens'])})"
+                    items = orcamento.get('items', [])
+                    if isinstance(items, str):
+                        items = json.loads(items)
+                    
+                    if items:
+                        if len(items) > 1:
+                            produto_info = f"Multiple Items ({len(items)})"
                         else:
-                            produto_info = orcamento['itens'][0].get('nome', 'Item')
-                        quantidade = sum(float(it.get('quantidade', 0)) for it in orcamento['itens'])
+                            produto_info = items[0].get('nome', items[0].get('name', 'Item'))
+                        quantidade = sum(float(it.get('quantidade', it.get('quantity', 0))) for it in items)
                     else:
                         produto_info = "No data"
                         quantidade = 0
                     
-                    st.write(f"**#{orcamento['numero']:04d}** - {orcamento['data']}")
-                    st.write(f"**Client:** {orcamento['cliente']}")
+                    budget_num = orcamento.get('budget_number', orcamento.get('numero', ''))
+                    created_date = orcamento.get('created_at', orcamento.get('data', ''))
+                    client_name = orcamento.get('client_name', orcamento.get('cliente', ''))
+                    total_val = orcamento.get('total_amount', orcamento.get('valor_total', 0))
+                    
+                    st.write(f"**#{budget_num}** - {created_date}")
+                    st.write(f"**Client:** {client_name}")
                     st.write(f"**Product:** {produto_info} | **Qty:** {quantidade:.0f}")
-                    st.write(f"**Total:** {formatar_moeda(orcamento['valor_total'])}")
+                    st.write(f"**Total:** {formatar_moeda(total_val)}")
                 
                 with col_acoes:
-                    if st.button("Open", key=f"open_{orcamento['numero']}"):
+                    if st.button("Open", key=f"open_{budget_num}"):
                         st.session_state.view_budget = orcamento
                         st.session_state.current_page = "view_budget"
                         st.rerun()
                     
-                    if st.button("PDF", key=f"pdf_{orcamento['numero']}"):
+                    if st.button("PDF", key=f"pdf_{budget_num}"):
                         # Gerar PDF
                         pdf_path = gerar_pdf(orcamento)
                         if pdf_path:
@@ -563,26 +655,32 @@ def mostrar_orcamentos():
                             st.download_button(
                                 label="Download PDF",
                                 data=pdf_bytes,
-                                file_name=f"Orcamento_{orcamento['numero']:04d}.pdf",
+                                file_name=f"Orcamento_{budget_num}.pdf",
                                 mime="application/pdf"
                             )
                     
-                    if st.button("Delete", key=f"del_{orcamento['numero']}", type="secondary"):
-                        data['orcamentos'] = [o for o in data['orcamentos'] if o['numero'] != orcamento['numero']]
-                        salvar_dados(data)
-                        st.session_state.data = data
-                        st.success(f"Budget #{orcamento['numero']:04d} deleted!")
-                        st.rerun()
+                    if st.button("Delete", key=f"del_{budget_num}", type="secondary"):
+                        db = SessionLocal()
+                        try:
+                            budget = db.query(Budget).filter(Budget.budget_number == budget_num).first()
+                            if budget:
+                                db.delete(budget)
+                                db.commit()
+                                st.success(f"Budget #{budget_num} deleted!")
+                                st.rerun()
+                        finally:
+                            db.close()
                 
                 st.divider()
     else:
         st.info("No budgets created yet. Create your first budget!")
 
 # --- TELA: CREATE BUDGET ---
+@require_auth()
 def mostrar_create_budget():
     st.title("📝 Create New Budget")
     
-    data = st.session_state.data
+    data = carregar_dados()
     
     # Inicializar variáveis
     if 'manual_items' not in st.session_state:
@@ -603,7 +701,7 @@ def mostrar_create_budget():
             tipo_venda = st.radio("Sale Type", ["Revenda", "Personalizado"])
             observacoes = st.text_area("Observations", placeholder="Additional information")
         
-        # Seção para adicionar itens manualmente (dentro do formulário)
+        # Seção para adicionar itens manualmente
         with st.expander("Add Item Manually", expanded=False):
             prod_col1, prod_col2, prod_col3 = st.columns(3)
             with prod_col1:
@@ -617,7 +715,6 @@ def mostrar_create_budget():
             with prod_col3:
                 valor_unitario_manual = st.number_input("Unit Value (R$)", min_value=0.0, value=0.0, step=0.01, key="valor_manual")
             
-            # Usar form_submit_button para adicionar item
             if st.form_submit_button("Add Item to Budget", type="secondary", use_container_width=True, key="add_item_btn"):
                 if produto_manual and quantidade_manual > 0:
                     novo_item = {
@@ -641,7 +738,6 @@ def mostrar_create_budget():
                 with col_item3:
                     st.write(f"Unit: {formatar_moeda(item['valor_unitario'])}")
                     
-                    # Botão para remover item (usando índice único)
                     if st.form_submit_button(f"Remove", key=f"remove_{i}"):
                         st.session_state.manual_items.pop(i)
                         st.rerun()
@@ -658,7 +754,7 @@ def mostrar_create_budget():
                 with col_item3:
                     st.write(f"Unit: {formatar_moeda(item['preco_unitario'])}")
         
-        # Botões de ação do formulário principal
+        # Botões de ação
         col_btn1, col_btn2, col_btn3 = st.columns(3)
         
         with col_btn1:
@@ -670,10 +766,8 @@ def mostrar_create_budget():
         with col_btn3:
             cancel_clicked = st.form_submit_button("Cancel", type="secondary", use_container_width=True, key="cancel_budget")
     
-    # Processar ações APÓS o formulário (fora do with st.form())
-    
+    # Processar ações APÓS o formulário
     if cancel_clicked:
-        # Limpar dados temporários
         if 'manual_items' in st.session_state:
             st.session_state.manual_items = []
         st.session_state.current_page = "calculator"
@@ -697,78 +791,88 @@ def mostrar_create_budget():
             if total <= 0:
                 st.warning("⚠️ Add at least one item to the budget!")
             else:
-                # Criar novo orçamento
-                novo_numero = data['ultimo_numero_orcamento'] + 1
-                
-                # Preparar itens para salvar
-                itens_para_salvar = []
-                
-                # Adicionar itens da calculadora
-                if st.session_state.get('selected_products'):
-                    for item in st.session_state.selected_products:
-                        itens_para_salvar.append({
-                            "nome": item['nome'],
-                            "quantidade": item['quantidade'],
-                            "valor_unitario": item['preco_unitario']
-                        })
-                
-                # Adicionar itens manuais
-                if st.session_state.manual_items:
-                    for item in st.session_state.manual_items:
-                        itens_para_salvar.append({
-                            "nome": item['nome'],
-                            "quantidade": item['quantidade'],
-                            "valor_unitario": item['valor_unitario']
-                        })
-                
-                novo_orcamento = {
-                    "numero": novo_numero,
-                    "data": datetime.now().strftime("%d/%m/%Y %H:%M"),
-                    "cliente": cliente.strip(),
-                    "tipo_entrega": tipo_entrega,
-                    "tipo_venda": tipo_venda,
-                    "endereco": endereco.strip(),
-                    "prazo_producao": prazo_producao,
-                    "valor_total": total,
-                    "observacoes": observacoes.strip(),
-                    "itens": itens_para_salvar
-                }
-                
-                # Salvar no banco de dados
-                data['orcamentos'].append(novo_orcamento)
-                data['ultimo_numero_orcamento'] = novo_numero
-                salvar_dados(data)
-                st.session_state.data = data
-                
-                st.success(f"✅ Budget #{novo_numero:04d} saved successfully!")
-                
-                # Limpar dados temporários
-                if 'selected_products' in st.session_state:
-                    st.session_state.selected_products = []
-                if 'manual_items' in st.session_state:
-                    st.session_state.manual_items = []
-                
-                # Gerar PDF se solicitado
-                if save_pdf_clicked:
-                    pdf_path = gerar_pdf(novo_orcamento)
-                    if pdf_path:
-                        with open(pdf_path, "rb") as f:
-                            pdf_bytes = f.read()
+                # Criar novo orçamento no banco de dados
+                db = SessionLocal()
+                try:
+                    current_user = get_current_user()
+                    user = db.query(User).filter(User.id == current_user['id']).first()
+                    
+                    # Gerar número do orçamento
+                    ultimo_numero = db.query(Budget).count() + 1
+                    
+                    # Preparar itens para salvar
+                    itens_para_salvar = []
+                    
+                    # Adicionar itens da calculadora
+                    if st.session_state.get('selected_products'):
+                        for item in st.session_state.selected_products:
+                            itens_para_salvar.append({
+                                "nome": item['nome'],
+                                "quantidade": item['quantidade'],
+                                "valor_unitario": item['preco_unitario']
+                            })
+                    
+                    # Adicionar itens manuais
+                    if st.session_state.manual_items:
+                        for item in st.session_state.manual_items:
+                            itens_para_salvar.append({
+                                "nome": item['nome'],
+                                "quantidade": item['quantidade'],
+                                "valor_unitario": item['valor_unitario']
+                            })
+                    
+                    novo_orcamento = Budget(
+                        budget_number=str(ultimo_numero).zfill(4),
+                        client_name=cliente.strip(),
+                        address=endereco.strip(),
+                        delivery_type=tipo_entrega,
+                        sale_type=tipo_venda,
+                        production_deadline=prazo_producao,
+                        total_amount=total,
+                        items=json.dumps(itens_para_salvar),
+                        notes=observacoes.strip(),
+                        user=user
+                    )
+                    
+                    db.add(novo_orcamento)
+                    db.commit()
+                    
+                    st.success(f"✅ Budget #{ultimo_numero:04d} saved successfully!")
+                    
+                    # Limpar dados temporários
+                    if 'selected_products' in st.session_state:
+                        st.session_state.selected_products = []
+                    if 'manual_items' in st.session_state:
+                        st.session_state.manual_items = []
+                    
+                    # Gerar PDF se solicitado
+                    if save_pdf_clicked:
+                        pdf_path = gerar_pdf(novo_orcamento.to_dict())
+                        if pdf_path:
+                            with open(pdf_path, "rb") as f:
+                                pdf_bytes = f.read()
+                            
+                            st.download_button(
+                                label="📄 Download PDF",
+                                data=pdf_bytes,
+                                file_name=f"Orcamento_{ultimo_numero:04d}.pdf",
+                                mime="application/pdf",
+                                type="primary"
+                            )
+                    
+                    # Opção para ir para a lista de orçamentos
+                    if st.button("View Budgets List"):
+                        st.session_state.current_page = "orcamentos"
+                        st.rerun()
                         
-                        st.download_button(
-                            label="📄 Download PDF",
-                            data=pdf_bytes,
-                            file_name=f"Orcamento_{novo_numero:04d}.pdf",
-                            mime="application/pdf",
-                            type="primary"
-                        )
-                
-                # Opção para ir para a lista de orçamentos
-                if st.button("View Budgets List"):
-                    st.session_state.current_page = "orcamentos"
-                    st.rerun()
+                except Exception as e:
+                    db.rollback()
+                    st.error(f"Erro ao salvar orçamento: {str(e)}")
+                finally:
+                    db.close()
 
 # --- TELA: VIEW BUDGET ---
+@require_auth()
 def mostrar_view_budget():
     if 'view_budget' not in st.session_state:
         st.session_state.current_page = "orcamentos"
@@ -776,31 +880,35 @@ def mostrar_view_budget():
     
     orcamento = st.session_state.view_budget
     
-    st.title(f"Budget #{orcamento['numero']:04d}")
+    st.title(f"Budget #{orcamento.get('budget_number', orcamento.get('numero', ''))}")
     
     # Informações principais
     col_info1, col_info2 = st.columns(2)
     
     with col_info1:
-        st.write(f"**Client:** {orcamento['cliente']}")
-        st.write(f"**Date:** {orcamento['data']}")
-        st.write(f"**Delivery Type:** {orcamento['tipo_entrega']}")
+        st.write(f"**Client:** {orcamento.get('client_name', orcamento.get('cliente', ''))}")
+        st.write(f"**Date:** {orcamento.get('created_at', orcamento.get('data', ''))}")
+        st.write(f"**Delivery Type:** {orcamento.get('delivery_type', orcamento.get('tipo_entrega', ''))}")
     
     with col_info2:
-        st.write(f"**Sale Type:** {orcamento['tipo_venda']}")
-        st.write(f"**Address:** {orcamento['endereco']}")
-        st.write(f"**Deadline:** {orcamento['prazo_producao']}")
+        st.write(f"**Sale Type:** {orcamento.get('sale_type', orcamento.get('tipo_venda', ''))}")
+        st.write(f"**Address:** {orcamento.get('address', orcamento.get('endereco', ''))}")
+        st.write(f"**Deadline:** {orcamento.get('production_deadline', orcamento.get('prazo_producao', ''))}")
     
     # Itens
     st.subheader("Items")
-    if 'itens' in orcamento and orcamento['itens']:
+    items = orcamento.get('items', [])
+    if isinstance(items, str):
+        items = json.loads(items)
+    
+    if items:
         itens_data = []
-        for item in orcamento['itens']:
+        for item in items:
             itens_data.append({
-                "Product": item.get('nome', 'Unnamed'),
-                "Quantity": item.get('quantidade', 0),
-                "Unit Value": formatar_moeda(item.get('valor_unitario', 0)),
-                "Total": formatar_moeda(item.get('valor_unitario', 0) * item.get('quantidade', 1))
+                "Product": item.get('nome', item.get('name', 'Unnamed')),
+                "Quantity": item.get('quantidade', item.get('quantity', 0)),
+                "Unit Value": formatar_moeda(item.get('valor_unitario', item.get('unit_price', 0))),
+                "Total": formatar_moeda(item.get('valor_unitario', item.get('unit_price', 0)) * item.get('quantidade', item.get('quantity', 1)))
             })
         
         df = pd.DataFrame(itens_data)
@@ -811,12 +919,12 @@ def mostrar_view_budget():
         st.write(f"**Unit Value:** {formatar_moeda(orcamento.get('valor_unitario', 0))}")
     
     # Total
-    st.metric("Total Value", formatar_moeda(orcamento['valor_total']))
+    st.metric("Total Value", formatar_moeda(orcamento.get('total_amount', orcamento.get('valor_total', 0))))
     
     # Observações
-    if orcamento.get('observacoes'):
+    if orcamento.get('observacoes') or orcamento.get('notes'):
         st.subheader("Observations")
-        st.write(orcamento['observacoes'])
+        st.write(orcamento.get('observacoes') or orcamento.get('notes', ''))
     
     # Botões de ação
     col_btn1, col_btn2, col_btn3 = st.columns(3)
@@ -830,7 +938,7 @@ def mostrar_view_budget():
                 st.download_button(
                     label="Download PDF",
                     data=pdf_bytes,
-                    file_name=f"Orcamento_{orcamento['numero']:04d}.pdf",
+                    file_name=f"Orcamento_{orcamento.get('budget_number', orcamento.get('numero', ''))}.pdf",
                     mime="application/pdf"
                 )
     
@@ -845,10 +953,11 @@ def mostrar_view_budget():
             st.rerun()
 
 # --- TELA: CLIENTES ---
+@require_auth()
 def mostrar_clientes():
     st.title("👥 Clients")
     
-    data = st.session_state.data
+    data = carregar_dados()
     
     # Estatísticas
     col_stats1, col_stats2, col_stats3 = st.columns(3)
@@ -881,18 +990,18 @@ def mostrar_clientes():
                 col_info, col_acoes = st.columns([3, 1])
                 
                 with col_info:
-                    st.write(f"**{cliente['nome']}**")
-                    if cliente.get('documento'):
-                        st.write(f"**Document:** {cliente['documento']}")
-                    if cliente.get('endereco'):
-                        st.write(f"**Address:** {cliente['endereco']}")
-                    if cliente.get('cep'):
-                        st.write(f"**ZIP Code:** {cliente['cep']}")
+                    st.write(f"**{cliente['name']}**")
+                    if cliente.get('document'):
+                        st.write(f"**Document:** {cliente['document']}")
+                    if cliente.get('address'):
+                        st.write(f"**Address:** {cliente['address']}")
+                    if cliente.get('zip_code'):
+                        st.write(f"**ZIP Code:** {cliente['zip_code']}")
                     
                     # Contar pedidos
                     num_pedidos = len(cliente.get('pedidos', []))
                     pedidos_pagos = sum(1 for pedido_id in cliente.get('pedidos', []) 
-                                      for p in data['pedidos'] if p['id'] == pedido_id and p.get('pago', False))
+                                      for p in data['pedidos'] if p['id'] == pedido_id and p.get('payment_status') == 'paid')
                     
                     st.write(f"**Orders:** {num_pedidos} (Paid: {pedidos_pagos})")
                 
@@ -917,10 +1026,11 @@ def mostrar_clientes():
         st.info("No clients registered. Create your first client!")
 
 # --- TELA: NOVO CLIENTE ---
+@require_auth()
 def mostrar_novo_cliente():
     st.title("👤 New Client")
     
-    data = st.session_state.data
+    db = SessionLocal()
     
     with st.form("cliente_form"):
         col1, col2 = st.columns(2)
@@ -933,11 +1043,11 @@ def mostrar_novo_cliente():
             tipo_documento = st.selectbox("Document Type", ["CPF", "CNPJ"])
             
             if tipo_documento == "CPF":
-                documento = st.text_input("CPF *", placeholder="000.000.000-00")
+                documento = st.text_input("CPF", placeholder="000.000.000-00")
                 if documento:
                     documento = formatar_cpf(documento)
             else:
-                documento = st.text_input("CNPJ *", placeholder="00.000.000/0000-00")
+                documento = st.text_input("CNPJ", placeholder="00.000.000/0000-00")
                 if documento:
                     documento = formatar_cnpj(documento)
         
@@ -966,54 +1076,56 @@ def mostrar_novo_cliente():
     if submit or save_and_order:
         if not nome.strip():
             st.error("❌ Client name is required!")
-        elif tipo_documento == "CPF" and documento and not validar_cpf(documento):
-            st.error("❌ Invalid CPF!")
-        elif tipo_documento == "CNPJ" and documento and not validar_cnpj(documento):
-            st.error("❌ Invalid CNPJ!")
         else:
-            # Criar novo cliente
-            data['ultimo_id_cliente'] += 1
-            novo_cliente = {
-                "id": data['ultimo_id_cliente'],
-                "nome": nome.strip(),
-                "email": email.strip(),
-                "telefone": telefone.strip(),
-                "tipo_documento": tipo_documento,
-                "documento": documento.strip() if documento else "",
-                "endereco": endereco.strip(),
-                "cep": cep.strip(),
-                "cidade": cidade.strip(),
-                "estado": estado.strip(),
-                "observacoes": observacoes.strip(),
-                "pedidos": [],
-                "data_cadastro": datetime.now().strftime("%d/%m/%Y %H:%M")
-            }
-            
-            data['clientes'].append(novo_cliente)
-            salvar_dados(data)
-            st.session_state.data = data
-            
-            st.success(f"✅ Client '{nome}' saved successfully!")
-            
-            if save_and_order:
-                st.session_state.novo_pedido_cliente = novo_cliente
-                st.session_state.current_page = "novo_pedido"
-                st.rerun()
-            else:
-                if st.button("Back to Clients List"):
-                    st.session_state.current_page = "clientes"
+            try:
+                current_user = get_current_user()
+                user = db.query(User).filter(User.id == current_user['id']).first()
+                
+                novo_cliente = Customer(
+                    name=nome.strip(),
+                    email=email.strip(),
+                    phone=telefone.strip(),
+                    document_type=tipo_documento,
+                    document=documento.strip() if documento else "",
+                    address=endereco.strip(),
+                    zip_code=cep.strip(),
+                    city=cidade.strip(),
+                    state=estado.strip(),
+                    notes=observacoes.strip(),
+                    user=user
+                )
+                
+                db.add(novo_cliente)
+                db.commit()
+                
+                st.success(f"✅ Client '{nome}' saved successfully!")
+                
+                if save_and_order:
+                    st.session_state.novo_pedido_cliente = novo_cliente.to_dict()
+                    st.session_state.current_page = "novo_pedido"
                     st.rerun()
+                else:
+                    if st.button("Back to Clients List"):
+                        st.session_state.current_page = "clientes"
+                        st.rerun()
+                        
+            except Exception as e:
+                db.rollback()
+                st.error(f"Erro ao salvar cliente: {str(e)}")
+            finally:
+                db.close()
 
 # --- TELA: VIEW CLIENTE ---
+@require_auth()
 def mostrar_view_cliente():
     if 'view_cliente' not in st.session_state:
         st.session_state.current_page = "clientes"
         st.rerun()
     
     cliente = st.session_state.view_cliente
-    data = st.session_state.data
+    data = carregar_dados()
     
-    st.title(f"👤 {cliente['nome']}")
+    st.title(f"👤 {cliente['name']}")
     
     # Abas para informações do cliente
     tab1, tab2, tab3 = st.tabs(["📋 Client Info", "🛒 Orders", "📊 Statistics"])
@@ -1022,27 +1134,27 @@ def mostrar_view_cliente():
         col1, col2 = st.columns(2)
         
         with col1:
-            st.write(f"**Name:** {cliente['nome']}")
+            st.write(f"**Name:** {cliente['name']}")
             if cliente.get('email'):
                 st.write(f"**Email:** {cliente['email']}")
-            if cliente.get('telefone'):
-                st.write(f"**Phone:** {cliente['telefone']}")
-            if cliente.get('documento'):
-                st.write(f"**Document ({cliente.get('tipo_documento', '')}):** {cliente['documento']}")
+            if cliente.get('phone'):
+                st.write(f"**Phone:** {cliente['phone']}")
+            if cliente.get('document'):
+                st.write(f"**Document ({cliente.get('document_type', '')}):** {cliente['document']}")
         
         with col2:
-            if cliente.get('endereco'):
-                st.write(f"**Address:** {cliente['endereco']}")
-            if cliente.get('cep'):
-                st.write(f"**ZIP Code:** {cliente['cep']}")
-            if cliente.get('cidade'):
-                st.write(f"**City:** {cliente['cidade']}")
-            if cliente.get('estado'):
-                st.write(f"**State:** {cliente['estado']}")
-            if cliente.get('observacoes'):
-                st.write(f"**Notes:** {cliente['observacoes']}")
+            if cliente.get('address'):
+                st.write(f"**Address:** {cliente['address']}")
+            if cliente.get('zip_code'):
+                st.write(f"**ZIP Code:** {cliente['zip_code']}")
+            if cliente.get('city'):
+                st.write(f"**City:** {cliente['city']}")
+            if cliente.get('state'):
+                st.write(f"**State:** {cliente['state']}")
+            if cliente.get('notes'):
+                st.write(f"**Notes:** {cliente['notes']}")
         
-        st.write(f"**Registration Date:** {cliente.get('data_cadastro', 'N/A')}")
+        st.write(f"**Registration Date:** {cliente.get('created_at', 'N/A')}")
         
         # Botões de ação
         col_btn1, col_btn2, col_btn3 = st.columns(3)
@@ -1068,11 +1180,11 @@ def mostrar_view_cliente():
         st.subheader("Client Orders")
         
         # Filtrar pedidos deste cliente
-        pedidos_cliente = [p for p in data['pedidos'] if p['cliente_id'] == cliente['id']]
+        pedidos_cliente = [p for p in data['pedidos'] if p.get('customer_id') == cliente['id']]
         
         if pedidos_cliente:
             # Ordenar por data (mais recente primeiro)
-            pedidos_cliente.sort(key=lambda x: x['data_criacao'], reverse=True)
+            pedidos_cliente.sort(key=lambda x: x.get('created_at', ''), reverse=True)
             
             for pedido in pedidos_cliente:
                 cor = get_cor_status_pedido(pedido)
@@ -1085,33 +1197,37 @@ def mostrar_view_cliente():
                     col_info, col_status, col_acoes = st.columns([3, 2, 1])
                     
                     with col_info:
-                        st.write(f"**Order #{pedido['id']}** - {pedido['data_criacao']}")
-                        st.write(f"**Total:** {formatar_moeda(pedido['valor_total'])}")
+                        st.write(f"**Order #{pedido.get('order_number', pedido.get('id', ''))}** - {pedido.get('created_at', '')}")
+                        st.write(f"**Total:** {formatar_moeda(pedido.get('total_amount', 0))}")
                         
                         # Mostrar produtos
-                        if pedido.get('itens'):
-                            produtos = ", ".join([item['nome'] for item in pedido['itens'][:3]])
-                            if len(pedido['itens']) > 3:
-                                produtos += f" (+{len(pedido['itens']) - 3} more)"
+                        items = pedido.get('items', [])
+                        if isinstance(items, str):
+                            items = json.loads(items)
+                        
+                        if items:
+                            produtos = ", ".join([item.get('nome', item.get('name', '')) for item in items[:3]])
+                            if len(items) > 3:
+                                produtos += f" (+{len(items) - 3} more)"
                             st.write(f"**Products:** {produtos}")
                     
                     with col_status:
                         # Status de pagamento
-                        if pedido.get('pago', False):
+                        if pedido.get('payment_status') == 'paid':
                             st.write("🟢 **Paid**")
-                            if pedido.get('forma_pagamento'):
-                                st.write(f"({pedido['forma_pagamento']})")
+                            if pedido.get('payment_method'):
+                                st.write(f"({pedido['payment_method']})")
                         else:
                             st.write("🔴 **Pending Payment**")
                         
                         # Status de entrega
-                        if pedido.get('entregue', False):
+                        if pedido.get('delivery_status') == 'delivered':
                             st.write("✓ **Delivered**")
                         else:
                             st.write("⏳ **In Production**")
                     
                     with col_acoes:
-                        if st.button("View", key=f"view_pedido_{pedido['id']}"):
+                        if st.button("View", key=f"view_pedido_{pedido.get('id', '')}"):
                             st.session_state.view_pedido = pedido
                             st.session_state.current_page = "view_pedido"
                             st.rerun()
@@ -1131,7 +1247,7 @@ def mostrar_view_cliente():
         st.subheader("Client Statistics")
         
         # Filtrar pedidos deste cliente
-        pedidos_cliente = [p for p in data['pedidos'] if p['cliente_id'] == cliente['id']]
+        pedidos_cliente = [p for p in data['pedidos'] if p.get('customer_id') == cliente['id']]
         
         if pedidos_cliente:
             col_stat1, col_stat2, col_stat3 = st.columns(3)
@@ -1141,62 +1257,64 @@ def mostrar_view_cliente():
                 st.metric("Total Orders", total_pedidos)
             
             with col_stat2:
-                pedidos_pagos = sum(1 for p in pedidos_cliente if p.get('pago', False))
+                pedidos_pagos = sum(1 for p in pedidos_cliente if p.get('payment_status') == 'paid')
                 st.metric("Paid Orders", pedidos_pagos)
             
             with col_stat3:
-                pedidos_entregues = sum(1 for p in pedidos_cliente if p.get('entregue', False))
+                pedidos_entregues = sum(1 for p in pedidos_cliente if p.get('delivery_status') == 'delivered')
                 st.metric("Delivered Orders", pedidos_entregues)
             
             # Valor total gasto
-            valor_total = sum(p['valor_total'] for p in pedidos_cliente)
+            valor_total = sum(p.get('total_amount', 0) for p in pedidos_cliente)
             st.metric("Total Spent", formatar_moeda(valor_total))
             
             # Último pedido
-            ultimo_pedido = max(pedidos_cliente, key=lambda x: x['data_criacao'])
-            st.write(f"**Last Order:** #{ultimo_pedido['id']} - {ultimo_pedido['data_criacao']}")
-            st.write(f"**Status:** {'Paid' if ultimo_pedido.get('pago', False) else 'Pending'} | {'Delivered' if ultimo_pedido.get('entregue', False) else 'In Production'}")
+            if pedidos_cliente:
+                ultimo_pedido = max(pedidos_cliente, key=lambda x: x.get('created_at', ''))
+                st.write(f"**Last Order:** #{ultimo_pedido.get('order_number', ultimo_pedido.get('id', ''))} - {ultimo_pedido.get('created_at', '')}")
+                st.write(f"**Status:** {'Paid' if ultimo_pedido.get('payment_status') == 'paid' else 'Pending'} | {'Delivered' if ultimo_pedido.get('delivery_status') == 'delivered' else 'In Production'}")
         else:
             st.info("No statistics available - client has no orders yet.")
 
 # --- TELA: EDIT CLIENTE ---
+@require_auth()
 def mostrar_edit_cliente():
     if 'edit_cliente' not in st.session_state:
         st.session_state.current_page = "clientes"
         st.rerun()
     
     cliente = st.session_state.edit_cliente
-    data = st.session_state.data
+    db = SessionLocal()
     
-    st.title(f"✏️ Edit Client: {cliente['nome']}")
+    st.title(f"✏️ Edit Client: {cliente['name']}")
     
     with st.form("edit_cliente_form"):
         col1, col2 = st.columns(2)
         
         with col1:
-            nome = st.text_input("Name *", value=cliente.get('nome', ''), placeholder="Full name")
+            nome = st.text_input("Name *", value=cliente.get('name', ''), placeholder="Full name")
             email = st.text_input("Email", value=cliente.get('email', ''), placeholder="email@example.com")
-            telefone = st.text_input("Phone", value=cliente.get('telefone', ''), placeholder="(00) 00000-0000")
+            telefone = st.text_input("Phone", value=cliente.get('phone', ''), placeholder="(00) 00000-0000")
             
             tipo_documento = st.selectbox("Document Type", ["CPF", "CNPJ"], 
-                                         index=0 if cliente.get('tipo_documento') == 'CPF' else 1)
+                                         index=0 if cliente.get('document_type') == 'CPF' else 1)
             
             if tipo_documento == "CPF":
-                documento = st.text_input("CPF", value=cliente.get('documento', ''), placeholder="000.000.000-00")
+                documento = st.text_input("CPF", value=cliente.get('document', ''), placeholder="000.000.000-00")
                 if documento:
                     documento = formatar_cpf(documento)
             else:
-                documento = st.text_input("CNPJ", value=cliente.get('documento', ''), placeholder="00.000.000/0000-00")
+                documento = st.text_input("CNPJ", value=cliente.get('document', ''), placeholder="00.000.000/0000-00")
                 if documento:
                     documento = formatar_cnpj(documento)
         
         with col2:
-            endereco = st.text_area("Address", value=cliente.get('endereco', ''), 
+            endereco = st.text_area("Address", value=cliente.get('address', ''), 
                                    placeholder="Street, Number, Neighborhood")
-            cep = st.text_input("ZIP Code", value=cliente.get('cep', ''), placeholder="00000-000")
-            cidade = st.text_input("City", value=cliente.get('cidade', ''), placeholder="City")
-            estado = st.text_input("State", value=cliente.get('estado', ''), placeholder="State", max_chars=2)
-            observacoes = st.text_area("Notes", value=cliente.get('observacoes', ''), 
+            cep = st.text_input("ZIP Code", value=cliente.get('zip_code', ''), placeholder="00000-000")
+            cidade = st.text_input("City", value=cliente.get('city', ''), placeholder="City")
+            estado = st.text_input("State", value=cliente.get('state', ''), placeholder="State", max_chars=2)
+            observacoes = st.text_area("Notes", value=cliente.get('notes', ''), 
                                       placeholder="Additional information")
         
         col_btn1, col_btn2 = st.columns(2)
@@ -1216,45 +1334,49 @@ def mostrar_edit_cliente():
         if not nome.strip():
             st.error("❌ Client name is required!")
         else:
-            # Atualizar cliente
-            for i, c in enumerate(data['clientes']):
-                if c['id'] == cliente['id']:
-                    data['clientes'][i].update({
-                        "nome": nome.strip(),
-                        "email": email.strip(),
-                        "telefone": telefone.strip(),
-                        "tipo_documento": tipo_documento,
-                        "documento": documento.strip() if documento else "",
-                        "endereco": endereco.strip(),
-                        "cep": cep.strip(),
-                        "cidade": cidade.strip(),
-                        "estado": estado.strip(),
-                        "observacoes": observacoes.strip()
-                    })
-                    break
-            
-            salvar_dados(data)
-            st.session_state.data = data
-            st.success(f"✅ Client '{nome}' updated successfully!")
-            
-            if st.button("Back to Client"):
-                del st.session_state.edit_cliente
-                st.session_state.view_cliente = next((c for c in data['clientes'] if c['id'] == cliente['id']), None)
-                st.session_state.current_page = "view_cliente"
-                st.rerun()
+            try:
+                customer = db.query(Customer).filter(Customer.id == cliente['id']).first()
+                if customer:
+                    customer.name = nome.strip()
+                    customer.email = email.strip()
+                    customer.phone = telefone.strip()
+                    customer.document_type = tipo_documento
+                    customer.document = documento.strip() if documento else ""
+                    customer.address = endereco.strip()
+                    customer.zip_code = cep.strip()
+                    customer.city = cidade.strip()
+                    customer.state = estado.strip()
+                    customer.notes = observacoes.strip()
+                    
+                    db.commit()
+                    st.success(f"✅ Client '{nome}' updated successfully!")
+                    
+                    if st.button("Back to Client"):
+                        del st.session_state.edit_cliente
+                        st.session_state.view_cliente = customer.to_dict()
+                        st.session_state.current_page = "view_cliente"
+                        st.rerun()
+                else:
+                    st.error("Client not found in database")
+            except Exception as e:
+                db.rollback()
+                st.error(f"Erro ao atualizar cliente: {str(e)}")
+            finally:
+                db.close()
 
 # --- TELA: FORNECEDORES ---
+@require_auth()
 def mostrar_fornecedores():
     st.title("🏭 Suppliers")
     
-    data = st.session_state.data
+    data = carregar_dados()
     
     # Estatísticas
     col_stats1, col_stats2 = st.columns(2)
     with col_stats1:
         st.metric("Total Suppliers", len(data['fornecedores']))
     with col_stats2:
-        tipos = set(f.get('tipo', '') for f in data['fornecedores'])
+        tipos = set(f.get('supplier_type', '') for f in data['fornecedores'])
         st.metric("Categories", len(tipos))
     
     # Botão para novo fornecedor
@@ -1269,7 +1391,7 @@ def mostrar_fornecedores():
         # Agrupar por tipo
         fornecedores_por_tipo = {}
         for fornecedor in data['fornecedores']:
-            tipo = fornecedor.get('tipo', 'Outros')
+            tipo = fornecedor.get('supplier_type', 'Outros')
             if tipo not in fornecedores_por_tipo:
                 fornecedores_por_tipo[tipo] = []
             fornecedores_por_tipo[tipo].append(fornecedor)
@@ -1281,15 +1403,15 @@ def mostrar_fornecedores():
                         col_info, col_acoes = st.columns([3, 1])
                         
                         with col_info:
-                            st.write(f"**{fornecedor['nome']}**")
-                            if fornecedor.get('nome_fantasia'):
-                                st.write(f"**Trade Name:** {fornecedor['nome_fantasia']}")
-                            if fornecedor.get('documento'):
-                                st.write(f"**Document:** {fornecedor['documento']}")
-                            if fornecedor.get('endereco'):
-                                st.write(f"**Address:** {fornecedor['endereco']}")
-                            if fornecedor.get('observacoes'):
-                                st.write(f"**Notes:** {fornecedor['observacoes']}")
+                            st.write(f"**{fornecedor['name']}**")
+                            if fornecedor.get('trade_name'):
+                                st.write(f"**Trade Name:** {fornecedor['trade_name']}")
+                            if fornecedor.get('document'):
+                                st.write(f"**Document:** {fornecedor['document']}")
+                            if fornecedor.get('address'):
+                                st.write(f"**Address:** {fornecedor['address']}")
+                            if fornecedor.get('notes'):
+                                st.write(f"**Notes:** {fornecedor['notes']}")
                         
                         with col_acoes:
                             if st.button("Edit", key=f"edit_fornecedor_{fornecedor['id']}"):
@@ -1302,10 +1424,11 @@ def mostrar_fornecedores():
         st.info("No suppliers registered. Create your first supplier!")
 
 # --- TELA: NOVO FORNECEDOR ---
+@require_auth()
 def mostrar_novo_fornecedor():
     st.title("🏭 New Supplier")
     
-    data = st.session_state.data
+    db = SessionLocal()
     
     with st.form("fornecedor_form"):
         col1, col2 = st.columns(2)
@@ -1353,70 +1476,77 @@ def mostrar_novo_fornecedor():
         if not nome.strip():
             st.error("❌ Supplier name is required!")
         else:
-            # Criar novo fornecedor
-            data['ultimo_id_fornecedor'] += 1
-            novo_fornecedor = {
-                "id": data['ultimo_id_fornecedor'],
-                "nome": nome.strip(),
-                "nome_fantasia": nome_fantasia.strip(),
-                "tipo": tipo,
-                "tipo_documento": tipo_documento if tipo_documento != "None" else "",
-                "documento": documento.strip(),
-                "endereco": endereco.strip(),
-                "telefone": telefone.strip(),
-                "email": email.strip(),
-                "observacoes": observacoes.strip(),
-                "data_cadastro": datetime.now().strftime("%d/%m/%Y %H:%M")
-            }
-            
-            data['fornecedores'].append(novo_fornecedor)
-            salvar_dados(data)
-            st.session_state.data = data
-            
-            st.success(f"✅ Supplier '{nome}' saved successfully!")
-            
-            if st.button("Back to Suppliers List"):
-                st.session_state.current_page = "fornecedores"
-                st.rerun()
+            try:
+                current_user = get_current_user()
+                user = db.query(User).filter(User.id == current_user['id']).first()
+                
+                novo_fornecedor = Supplier(
+                    name=nome.strip(),
+                    trade_name=nome_fantasia.strip(),
+                    supplier_type=tipo,
+                    document_type=tipo_documento if tipo_documento != "None" else "",
+                    document=documento.strip(),
+                    address=endereco.strip(),
+                    phone=telefone.strip(),
+                    email=email.strip(),
+                    notes=observacoes.strip(),
+                    user=user
+                )
+                
+                db.add(novo_fornecedor)
+                db.commit()
+                
+                st.success(f"✅ Supplier '{nome}' saved successfully!")
+                
+                if st.button("Back to Suppliers List"):
+                    st.session_state.current_page = "fornecedores"
+                    st.rerun()
+                    
+            except Exception as e:
+                db.rollback()
+                st.error(f"Erro ao salvar fornecedor: {str(e)}")
+            finally:
+                db.close()
 
 # --- TELA: EDIT FORNECEDOR ---
+@require_auth()
 def mostrar_edit_fornecedor():
     if 'edit_fornecedor' not in st.session_state:
         st.session_state.current_page = "fornecedores"
         st.rerun()
     
     fornecedor = st.session_state.edit_fornecedor
-    data = st.session_state.data
+    db = SessionLocal()
     
-    st.title(f"✏️ Edit Supplier: {fornecedor['nome']}")
+    st.title(f"✏️ Edit Supplier: {fornecedor['name']}")
     
     with st.form("edit_fornecedor_form"):
         col1, col2 = st.columns(2)
         
         with col1:
-            nome = st.text_input("Name *", value=fornecedor.get('nome', ''), placeholder="Company name")
-            nome_fantasia = st.text_input("Trade Name", value=fornecedor.get('nome_fantasia', ''), 
+            nome = st.text_input("Name *", value=fornecedor.get('name', ''), placeholder="Company name")
+            nome_fantasia = st.text_input("Trade Name", value=fornecedor.get('trade_name', ''), 
                                          placeholder="Trade name (optional)")
             
             tipo = st.selectbox("Type", ["Camisaria", "Serviços", "Canecas e Brindes", 
                                         "DTF e Estamparia", "Acessórios", "Outros"],
                                index=["Camisaria", "Serviços", "Canecas e Brindes", 
                                      "DTF e Estamparia", "Acessórios", "Outros"].index(
-                                         fornecedor.get('tipo', 'Outros')))
+                                         fornecedor.get('supplier_type', 'Outros')))
             
-            tipo_documento_atual = fornecedor.get('tipo_documento', 'None')
+            tipo_documento_atual = fornecedor.get('document_type', 'None')
             tipo_documento = st.selectbox("Document Type", ["None", "CPF", "CNPJ"],
                                          index=["None", "CPF", "CNPJ"].index(
                                              tipo_documento_atual if tipo_documento_atual in ["None", "CPF", "CNPJ"] else "None"))
             
             if tipo_documento != "None":
                 if tipo_documento == "CPF":
-                    documento = st.text_input("CPF", value=fornecedor.get('documento', ''), 
+                    documento = st.text_input("CPF", value=fornecedor.get('document', ''), 
                                              placeholder="000.000.000-00")
                     if documento:
                         documento = formatar_cpf(documento)
                 else:
-                    documento = st.text_input("CNPJ", value=fornecedor.get('documento', ''), 
+                    documento = st.text_input("CNPJ", value=fornecedor.get('document', ''), 
                                              placeholder="00.000.000/0000-00")
                     if documento:
                         documento = formatar_cnpj(documento)
@@ -1424,13 +1554,13 @@ def mostrar_edit_fornecedor():
                 documento = ""
         
         with col2:
-            endereco = st.text_area("Address", value=fornecedor.get('endereco', ''), 
+            endereco = st.text_area("Address", value=fornecedor.get('address', ''), 
                                    placeholder="Full address")
-            telefone = st.text_input("Phone", value=fornecedor.get('telefone', ''), 
+            telefone = st.text_input("Phone", value=fornecedor.get('phone', ''), 
                                     placeholder="(00) 00000-0000")
             email = st.text_input("Email", value=fornecedor.get('email', ''), 
                                  placeholder="email@example.com")
-            observacoes = st.text_area("Notes", value=fornecedor.get('observacoes', ''), 
+            observacoes = st.text_area("Notes", value=fornecedor.get('notes', ''), 
                                       placeholder="Additional information")
         
         col_btn1, col_btn2 = st.columns(2)
@@ -1450,41 +1580,45 @@ def mostrar_edit_fornecedor():
         if not nome.strip():
             st.error("❌ Supplier name is required!")
         else:
-            # Atualizar fornecedor
-            for i, f in enumerate(data['fornecedores']):
-                if f['id'] == fornecedor['id']:
-                    data['fornecedores'][i].update({
-                        "nome": nome.strip(),
-                        "nome_fantasia": nome_fantasia.strip(),
-                        "tipo": tipo,
-                        "tipo_documento": tipo_documento if tipo_documento != "None" else "",
-                        "documento": documento.strip(),
-                        "endereco": endereco.strip(),
-                        "telefone": telefone.strip(),
-                        "email": email.strip(),
-                        "observacoes": observacoes.strip()
-                    })
-                    break
-            
-            salvar_dados(data)
-            st.session_state.data = data
-            st.success(f"✅ Supplier '{nome}' updated successfully!")
-            
-            if st.button("Back to Suppliers"):
-                del st.session_state.edit_fornecedor
-                st.session_state.current_page = "fornecedores"
-                st.rerun()
+            try:
+                supplier = db.query(Supplier).filter(Supplier.id == fornecedor['id']).first()
+                if supplier:
+                    supplier.name = nome.strip()
+                    supplier.trade_name = nome_fantasia.strip()
+                    supplier.supplier_type = tipo
+                    supplier.document_type = tipo_documento if tipo_documento != "None" else ""
+                    supplier.document = documento.strip()
+                    supplier.address = endereco.strip()
+                    supplier.phone = telefone.strip()
+                    supplier.email = email.strip()
+                    supplier.notes = observacoes.strip()
+                    
+                    db.commit()
+                    st.success(f"✅ Supplier '{nome}' updated successfully!")
+                    
+                    if st.button("Back to Suppliers"):
+                        del st.session_state.edit_fornecedor
+                        st.session_state.current_page = "fornecedores"
+                        st.rerun()
+                else:
+                    st.error("Supplier not found in database")
+            except Exception as e:
+                db.rollback()
+                st.error(f"Erro ao atualizar fornecedor: {str(e)}")
+            finally:
+                db.close()
 
 # --- TELA: PEDIDOS ---
+@require_auth()
 def mostrar_pedidos():
     st.title("🛒 Orders")
     
-    data = st.session_state.data
+    data = carregar_dados()
     
     # Estatísticas
-    pedidos_pendentes = sum(1 for p in data['pedidos'] if not p.get('pago', False))
-    pedidos_pagos = sum(1 for p in data['pedidos'] if p.get('pago', False))
-    pedidos_entregues = sum(1 for p in data['pedidos'] if p.get('entregue', False))
+    pedidos_pendentes = sum(1 for p in data['pedidos'] if p.get('payment_status') != 'paid')
+    pedidos_pagos = sum(1 for p in data['pedidos'] if p.get('payment_status') == 'paid')
+    pedidos_entregues = sum(1 for p in data['pedidos'] if p.get('delivery_status') == 'delivered')
     
     col_stats1, col_stats2, col_stats3, col_stats4 = st.columns(4)
     with col_stats1:
@@ -1517,7 +1651,7 @@ def mostrar_pedidos():
     
     with col_filtro3:
         # Filtro por cliente
-        clientes_nomes = ["All"] + [c['nome'] for c in data['clientes']]
+        clientes_nomes = ["All"] + [c['name'] for c in data['clientes']]
         filtro_cliente = st.selectbox("Client", clientes_nomes)
     
     # Lista de pedidos
@@ -1525,27 +1659,27 @@ def mostrar_pedidos():
     
     if data['pedidos']:
         # Ordenar por data (mais recente primeiro)
-        pedidos_ordenados = sorted(data['pedidos'], key=lambda x: x['data_criacao'], reverse=True)
+        pedidos_ordenados = sorted(data['pedidos'], key=lambda x: x.get('created_at', ''), reverse=True)
         
         # Aplicar filtros
         pedidos_filtrados = []
         for pedido in pedidos_ordenados:
             # Filtro de status de pagamento
             if "All" not in filtro_status:
-                status_pagamento = "Paid" if pedido.get('pago', False) else "Pending"
+                status_pagamento = "Paid" if pedido.get('payment_status') == 'paid' else "Pending"
                 if status_pagamento not in filtro_status:
                     continue
             
             # Filtro de status de entrega
             if "All" not in filtro_entrega:
-                status_entrega = "Delivered" if pedido.get('entregue', False) else "Pending"
+                status_entrega = "Delivered" if pedido.get('delivery_status') == 'delivered' else "Pending"
                 if status_entrega not in filtro_entrega:
                     continue
             
             # Filtro por cliente
             if filtro_cliente != "All":
-                cliente = next((c for c in data['clientes'] if c['id'] == pedido['cliente_id']), None)
-                if not cliente or cliente['nome'] != filtro_cliente:
+                cliente = next((c for c in data['clientes'] if c['id'] == pedido.get('customer_id')), None)
+                if not cliente or cliente['name'] != filtro_cliente:
                     continue
             
             pedidos_filtrados.append(pedido)
@@ -1567,43 +1701,47 @@ def mostrar_pedidos():
                         # Obter nome do cliente
                         cliente_nome = "Unknown"
                         for cliente in data['clientes']:
-                            if cliente['id'] == pedido['cliente_id']:
-                                cliente_nome = cliente['nome']
+                            if cliente['id'] == pedido.get('customer_id'):
+                                cliente_nome = cliente['name']
                                 break
                         
-                        st.write(f"**Order #{pedido['id']}** - {pedido['data_criacao']}")
+                        st.write(f"**Order #{pedido.get('order_number', pedido.get('id', ''))}** - {pedido.get('created_at', '')}")
                         st.write(f"**Client:** {cliente_nome}")
-                        st.write(f"**Total:** {formatar_moeda(pedido['valor_total'])}")
+                        st.write(f"**Total:** {formatar_moeda(pedido.get('total_amount', 0))}")
                         
                         # Mostrar produtos
-                        if pedido.get('itens'):
-                            produtos = ", ".join([item['nome'] for item in pedido['itens'][:2]])
-                            if len(pedido['itens']) > 2:
-                                produtos += f" (+{len(pedido['itens']) - 2} more)"
+                        items = pedido.get('items', [])
+                        if isinstance(items, str):
+                            items = json.loads(items)
+                        
+                        if items:
+                            produtos = ", ".join([item.get('nome', item.get('name', '')) for item in items[:2]])
+                            if len(items) > 2:
+                                produtos += f" (+{len(items) - 2} more)"
                             st.write(f"**Products:** {produtos}")
                     
                     with col_status:
                         # Status de pagamento
-                        if pedido.get('pago', False):
+                        if pedido.get('payment_status') == 'paid':
                             st.write("🟢 **Paid**")
-                            if pedido.get('forma_pagamento'):
-                                st.write(f"({pedido['forma_pagamento']})")
+                            if pedido.get('payment_method'):
+                                st.write(f"({pedido['payment_method']})")
                         else:
                             # Verificar se está atrasado
-                            data_criacao = datetime.strptime(pedido['data_criacao'], "%d/%m/%Y %H:%M")
+                            data_criacao = datetime.fromisoformat(pedido.get('created_at')) if pedido.get('created_at') else datetime.now()
                             if (datetime.now() - data_criacao) > timedelta(hours=24):
                                 st.write("🔴 **Overdue Payment**")
                             else:
                                 st.write("🟡 **Pending Payment**")
                         
                         # Status de entrega
-                        if pedido.get('entregue', False):
+                        if pedido.get('delivery_status') == 'delivered':
                             st.write("✓ **Delivered**")
                         else:
                             st.write("⏳ **In Production**")
                     
                     with col_acoes:
-                        if st.button("View", key=f"view_pedido_main_{pedido['id']}"):
+                        if st.button("View", key=f"view_pedido_main_{pedido.get('id', '')}"):
                             st.session_state.view_pedido = pedido
                             st.session_state.current_page = "view_pedido"
                             st.rerun()
@@ -1614,10 +1752,11 @@ def mostrar_pedidos():
         st.info("No orders created yet. Create your first order!")
 
 # --- TELA: NOVO PEDIDO ---
+@require_auth()
 def mostrar_novo_pedido():
     st.title("🛒 New Order")
     
-    data = st.session_state.data
+    data = carregar_dados()
     
     # Inicializar variáveis
     if 'selected_products' not in st.session_state:
@@ -1632,10 +1771,10 @@ def mostrar_novo_pedido():
         
         with col1:
             # Seleção de cliente
-            clientes_options = [c['nome'] for c in data['clientes']]
+            clientes_options = [c['name'] for c in data['clientes']]
             
             if st.session_state.get('novo_pedido_cliente'):
-                cliente_pre_selecionado = st.session_state.novo_pedido_cliente['nome']
+                cliente_pre_selecionado = st.session_state.novo_pedido_cliente['name']
                 cliente_selecionado = st.selectbox("Client *", clientes_options, 
                                                   index=clientes_options.index(cliente_pre_selecionado) 
                                                   if cliente_pre_selecionado in clientes_options else 0)
@@ -1645,15 +1784,15 @@ def mostrar_novo_pedido():
             # Obter cliente selecionado
             cliente_atual = None
             for c in data['clientes']:
-                if c['nome'] == cliente_selecionado:
+                if c['name'] == cliente_selecionado:
                     cliente_atual = c
                     break
             
             if cliente_atual:
-                st.write(f"**Document:** {cliente_atual.get('documento', 'N/A')}")
-                st.write(f"**Address:** {cliente_atual.get('endereco', 'N/A')}")
-                if cliente_atual.get('telefone'):
-                    st.write(f"**Phone:** {cliente_atual['telefone']}")
+                st.write(f"**Document:** {cliente_atual.get('document', 'N/A')}")
+                st.write(f"**Address:** {cliente_atual.get('address', 'N/A')}")
+                if cliente_atual.get('phone'):
+                    st.write(f"**Phone:** {cliente_atual['phone']}")
             
             prazo_entrega = st.text_input("Delivery Deadline", value="5 dias úteis")
         
@@ -1664,7 +1803,7 @@ def mostrar_novo_pedido():
                                            "Debit Card", "PIX", "Bank Transfer"])
             observacoes = st.text_area("Observations", placeholder="Additional information")
         
-        # Seção para adicionar produtos (similar à calculadora)
+        # Seção para adicionar produtos
         st.subheader("Add Products")
         
         col_prod1, col_prod2, col_prod3 = st.columns(3)
@@ -1676,7 +1815,6 @@ def mostrar_novo_pedido():
             quantidade = st.number_input("Quantity", min_value=1, value=1)
         
         with col_prod3:
-            # Se for um produto da lista, mostrar custo estimado
             valor_unitario = st.number_input("Unit Value (R$)", min_value=0.0, value=0.0, step=0.01)
         
         if st.form_submit_button("Add Product to Order", type="secondary", use_container_width=True):
@@ -1765,156 +1903,153 @@ def mostrar_novo_pedido():
             if st.session_state.manual_items:
                 total += sum(item['preco_total'] for item in st.session_state.manual_items)
             
-            # Criar novo pedido
-            data['ultimo_id_pedido'] += 1
-            
-            # Preparar itens para salvar
-            itens_para_salvar = []
-            
-            # Adicionar itens da calculadora
-            if st.session_state.get('selected_products'):
-                for item in st.session_state.selected_products:
-                    itens_para_salvar.append({
-                        "nome": item['nome'],
-                        "quantidade": item['quantidade'],
-                        "valor_unitario": item['preco_unitario']
-                    })
-            
-            # Adicionar itens manuais
-            if st.session_state.manual_items:
-                for item in st.session_state.manual_items:
-                    itens_para_salvar.append({
-                        "nome": item['nome'],
-                        "quantidade": item['quantidade'],
-                        "valor_unitario": item['valor_unitario']
-                    })
-            
-            novo_pedido = {
-                "id": data['ultimo_id_pedido'],
-                "cliente_id": cliente_atual['id'],
-                "data_criacao": datetime.now().strftime("%d/%m/%Y %H:%M"),
-                "tipo_entrega": tipo_entrega,
-                "prazo_entrega": prazo_entrega,
-                "forma_pagamento": forma_pagamento if forma_pagamento != "Not Defined" else "",
-                "valor_total": total,
-                "observacoes": observacoes.strip(),
-                "itens": itens_para_salvar,
-                "pago": False,
-                "entregue": False,
-                "data_pagamento": None,
-                "data_entrega": None
-            }
-            
-            # Adicionar pedido ao cliente
-            for cliente in data['clientes']:
-                if cliente['id'] == cliente_atual['id']:
-                    if 'pedidos' not in cliente:
-                        cliente['pedidos'] = []
-                    cliente['pedidos'].append(data['ultimo_id_pedido'])
-                    break
-            
-            # Salvar pedido
-            data['pedidos'].append(novo_pedido)
-            salvar_dados(data)
-            st.session_state.data = data
-            
-            st.success(f"✅ Order #{data['ultimo_id_pedido']} saved successfully!")
-            
-            # Limpar dados temporários
-            if 'selected_products' in st.session_state:
-                st.session_state.selected_products = []
-            if 'manual_items' in st.session_state:
-                st.session_state.manual_items = []
-            if 'novo_pedido_cliente' in st.session_state:
-                del st.session_state.novo_pedido_cliente
-            
-            # Gerar nota fiscal se solicitado
-            if save_pdf_clicked:
-                pdf_path = gerar_nota_fiscal(novo_pedido, cliente_atual)
-                if pdf_path:
-                    with open(pdf_path, "rb") as f:
-                        pdf_bytes = f.read()
+            # Criar novo pedido no banco
+            db = SessionLocal()
+            try:
+                current_user = get_current_user()
+                user = db.query(User).filter(User.id == current_user['id']).first()
+                
+                customer = db.query(Customer).filter(Customer.id == cliente_atual['id']).first()
+                
+                # Gerar número do pedido
+                ultimo_numero = db.query(Order).count() + 1
+                
+                # Preparar itens para salvar
+                itens_para_salvar = []
+                
+                # Adicionar itens da calculadora
+                if st.session_state.get('selected_products'):
+                    for item in st.session_state.selected_products:
+                        itens_para_salvar.append({
+                            "nome": item['nome'],
+                            "quantidade": item['quantidade'],
+                            "valor_unitario": item['preco_unitario']
+                        })
+                
+                # Adicionar itens manuais
+                if st.session_state.manual_items:
+                    for item in st.session_state.manual_items:
+                        itens_para_salvar.append({
+                            "nome": item['nome'],
+                            "quantidade": item['quantidade'],
+                            "valor_unitario": item['valor_unitario']
+                        })
+                
+                novo_pedido = Order(
+                    order_number=str(ultimo_numero).zfill(4),
+                    customer=customer,
+                    user=user,
+                    total_amount=total,
+                    items=json.dumps(itens_para_salvar),
+                    delivery_type=tipo_entrega,
+                    delivery_deadline=prazo_entrega,
+                    payment_method=forma_pagamento if forma_pagamento != "Not Defined" else "",
+                    payment_status='pending',
+                    delivery_status='production',
+                    notes=observacoes.strip()
+                )
+                
+                db.add(novo_pedido)
+                db.commit()
+                
+                st.success(f"✅ Order #{ultimo_numero} saved successfully!")
+                
+                # Limpar dados temporários
+                if 'selected_products' in st.session_state:
+                    st.session_state.selected_products = []
+                if 'manual_items' in st.session_state:
+                    st.session_state.manual_items = []
+                if 'novo_pedido_cliente' in st.session_state:
+                    del st.session_state.novo_pedido_cliente
+                
+                # Gerar nota fiscal se solicitado
+                if save_pdf_clicked:
+                    st.warning("Invoice generation not implemented in this version")
+                    # Implementar geração de nota fiscal futuramente
+                
+                # Opção para ir para a lista de pedidos
+                if st.button("View Orders List"):
+                    st.session_state.current_page = "pedidos"
+                    st.rerun()
                     
-                    st.download_button(
-                        label="📄 Download Invoice",
-                        data=pdf_bytes,
-                        file_name=f"Nota_Ordem_{novo_pedido['id']}.pdf",
-                        mime="application/pdf",
-                        type="primary"
-                    )
-            
-            # Opção para ir para a lista de pedidos
-            if st.button("View Orders List"):
-                st.session_state.current_page = "pedidos"
-                st.rerun()
+            except Exception as e:
+                db.rollback()
+                st.error(f"Erro ao salvar pedido: {str(e)}")
+            finally:
+                db.close()
 
 # --- TELA: VIEW PEDIDO ---
+@require_auth()
 def mostrar_view_pedido():
     if 'view_pedido' not in st.session_state:
         st.session_state.current_page = "pedidos"
         st.rerun()
     
     pedido = st.session_state.view_pedido
-    data = st.session_state.data
+    data = carregar_dados()
     
     # Obter cliente
-    cliente = next((c for c in data['clientes'] if c['id'] == pedido['cliente_id']), None)
+    cliente = next((c for c in data['clientes'] if c['id'] == pedido.get('customer_id')), None)
     
-    st.title(f"🛒 Order #{pedido['id']}")
+    st.title(f"🛒 Order #{pedido.get('order_number', pedido.get('id', ''))}")
     
     # Informações principais
     col_info1, col_info2 = st.columns(2)
     
     with col_info1:
-        st.write(f"**Client:** {cliente['nome'] if cliente else 'Unknown'}")
-        st.write(f"**Creation Date:** {pedido['data_criacao']}")
-        st.write(f"**Delivery Type:** {pedido['tipo_entrega']}")
-        st.write(f"**Delivery Deadline:** {pedido['prazo_entrega']}")
+        st.write(f"**Client:** {cliente['name'] if cliente else 'Unknown'}")
+        st.write(f"**Creation Date:** {pedido.get('created_at', '')}")
+        st.write(f"**Delivery Type:** {pedido.get('delivery_type', '')}")
+        st.write(f"**Delivery Deadline:** {pedido.get('delivery_deadline', '')}")
     
     with col_info2:
-        st.write(f"**Payment Method:** {pedido.get('forma_pagamento', 'Not defined')}")
-        if pedido.get('data_pagamento'):
-            st.write(f"**Payment Date:** {pedido['data_pagamento']}")
-        if pedido.get('data_entrega'):
-            st.write(f"**Delivery Date:** {pedido['data_entrega']}")
+        st.write(f"**Payment Method:** {pedido.get('payment_method', 'Not defined')}")
+        if pedido.get('paid_at'):
+            st.write(f"**Payment Date:** {pedido.get('paid_at')}")
+        if pedido.get('delivered_at'):
+            st.write(f"**Delivery Date:** {pedido.get('delivered_at')}")
     
     # Status
     col_status1, col_status2 = st.columns(2)
     
     with col_status1:
-        if pedido.get('pago', False):
+        if pedido.get('payment_status') == 'paid':
             st.success("✅ **PAID**")
         else:
             st.error("❌ **PENDING PAYMENT**")
     
     with col_status2:
-        if pedido.get('entregue', False):
+        if pedido.get('delivery_status') == 'delivered':
             st.success("✅ **DELIVERED**")
         else:
             st.warning("⏳ **IN PRODUCTION**")
     
     # Itens
     st.subheader("Items")
-    if pedido.get('itens'):
+    items = pedido.get('items', [])
+    if isinstance(items, str):
+        items = json.loads(items)
+    
+    if items:
         itens_data = []
-        for item in pedido['itens']:
+        for item in items:
             itens_data.append({
-                "Product": item.get('nome', 'Unnamed'),
-                "Quantity": item.get('quantidade', 0),
-                "Unit Value": formatar_moeda(item.get('valor_unitario', 0)),
-                "Total": formatar_moeda(item.get('valor_unitario', 0) * item.get('quantidade', 1))
+                "Product": item.get('nome', item.get('name', 'Unnamed')),
+                "Quantity": item.get('quantidade', item.get('quantity', 0)),
+                "Unit Value": formatar_moeda(item.get('valor_unitario', item.get('unit_price', 0))),
+                "Total": formatar_moeda(item.get('valor_unitario', item.get('unit_price', 0)) * item.get('quantidade', item.get('quantity', 1)))
             })
         
         df = pd.DataFrame(itens_data)
         st.dataframe(df, use_container_width=True, hide_index=True)
     
     # Total
-    st.metric("Total Value", formatar_moeda(pedido['valor_total']))
+    st.metric("Total Value", formatar_moeda(pedido.get('total_amount', 0)))
     
     # Observações
-    if pedido.get('observacoes'):
+    if pedido.get('notes'):
         st.subheader("Observations")
-        st.write(pedido['observacoes'])
+        st.write(pedido['notes'])
     
     # Controles de status
     st.subheader("Update Status")
@@ -1922,7 +2057,7 @@ def mostrar_view_pedido():
     col_status_btn1, col_status_btn2, col_status_btn3 = st.columns(3)
     
     with col_status_btn1:
-        if not pedido.get('pago', False):
+        if pedido.get('payment_status') != 'paid':
             if st.button("Mark as Paid", type="primary", use_container_width=True):
                 # Mostrar opções de pagamento
                 st.session_state.pagar_pedido = pedido
@@ -1931,33 +2066,26 @@ def mostrar_view_pedido():
             st.info("Order already paid")
     
     with col_status_btn2:
-        if not pedido.get('entregue', False):
+        if pedido.get('delivery_status') != 'delivered':
             if st.button("Mark as Delivered", use_container_width=True):
-                for i, p in enumerate(data['pedidos']):
-                    if p['id'] == pedido['id']:
-                        data['pedidos'][i]['entregue'] = True
-                        data['pedidos'][i]['data_entrega'] = datetime.now().strftime("%d/%m/%Y %H:%M")
-                        break
-                salvar_dados(data)
-                st.session_state.data = data
-                st.success("✅ Order marked as delivered!")
-                st.rerun()
+                db = SessionLocal()
+                try:
+                    order = db.query(Order).filter(Order.id == pedido['id']).first()
+                    if order:
+                        order.delivery_status = 'delivered'
+                        order.delivered_at = datetime.now()
+                        db.commit()
+                        st.success("✅ Order marked as delivered!")
+                        st.rerun()
+                finally:
+                    db.close()
         else:
             st.info("Order already delivered")
     
     with col_status_btn3:
         if st.button("Generate Invoice", type="secondary", use_container_width=True):
-            pdf_path = gerar_nota_fiscal(pedido, cliente)
-            if pdf_path:
-                with open(pdf_path, "rb") as f:
-                    pdf_bytes = f.read()
-                
-                st.download_button(
-                    label="Download Invoice",
-                    data=pdf_bytes,
-                    file_name=f"Nota_Ordem_{pedido['id']}.pdf",
-                    mime="application/pdf"
-                )
+            st.warning("Invoice generation not implemented in this version")
+            # Implementar geração de nota fiscal futuramente
     
     # Seção para marcar como pago
     if st.session_state.get('pagar_pedido') == pedido:
@@ -1970,17 +2098,19 @@ def mostrar_view_pedido():
         
         with col_confirm1:
             if st.button("Confirm Payment", type="primary", use_container_width=True):
-                for i, p in enumerate(data['pedidos']):
-                    if p['id'] == pedido['id']:
-                        data['pedidos'][i]['pago'] = True
-                        data['pedidos'][i]['forma_pagamento'] = forma_pagamento
-                        data['pedidos'][i]['data_pagamento'] = datetime.now().strftime("%d/%m/%Y %H:%M")
-                        break
-                salvar_dados(data)
-                st.session_state.data = data
-                del st.session_state.pagar_pedido
-                st.success("✅ Payment confirmed!")
-                st.rerun()
+                db = SessionLocal()
+                try:
+                    order = db.query(Order).filter(Order.id == pedido['id']).first()
+                    if order:
+                        order.payment_status = 'paid'
+                        order.payment_method = forma_pagamento
+                        order.paid_at = datetime.now()
+                        db.commit()
+                        del st.session_state.pagar_pedido
+                        st.success("✅ Payment confirmed!")
+                        st.rerun()
+                finally:
+                    db.close()
         
         with col_confirm2:
             if st.button("Cancel", type="secondary", use_container_width=True):
@@ -1996,493 +2126,246 @@ def mostrar_view_pedido():
         st.rerun()
 
 # --- TELA: SETTINGS ---
+@require_auth()
 def mostrar_settings():
     st.title("⚙️ Settings")
     
-    data = st.session_state.data
-    config = data['config']
+    if not is_admin():
+        st.error("⚠️ You need administrator privileges to access settings.")
+        return
     
-    # DTF Costs
-    st.subheader("DTF Costs")
-    col_dtf1, col_dtf2 = st.columns(2)
+    data = carregar_dados()
+    db = SessionLocal()
     
-    with col_dtf1:
-        preco_metro = st.number_input("Price per Meter (R$)", 
-                                    value=config['preco_metro'], 
-                                    min_value=0.0, step=0.1)
-    
-    with col_dtf2:
-        largura_rolo = st.number_input("Roll Width (cm)", 
-                                     value=config['largura_rolo'], 
-                                     min_value=0.0, step=0.1)
-    
-    # Custom Labels and Fixed Costs
-    st.subheader("Custom Labels and Fixed Costs")
-    
-    col_label1, col_label2, col_label3 = st.columns(3)
-    
-    with col_label1:
-        st.write("**Energy**")
-        label_energia = st.text_input("Label", value=config['labels']['energia'], key="label_energia")
-        valor_energia = st.number_input("Value (R$)", value=config['fixed_costs']['energia'], 
-                                       min_value=0.0, step=0.1, key="val_energia")
-    
-    with col_label2:
-        st.write("**Transport**")
-        label_transporte = st.text_input("Label", value=config['labels']['transporte'], key="label_transporte")
-        valor_transporte = st.number_input("Value (R$)", value=config['fixed_costs']['transporte'], 
-                                          min_value=0.0, step=0.1, key="val_transporte")
-    
-    with col_label3:
-        st.write("**Packaging**")
-        label_embalagem = st.text_input("Label", value=config['labels']['embalagem'], key="label_embalagem")
-        valor_embalagem = st.number_input("Value (R$)", value=config['fixed_costs']['embalagem'], 
-                                         min_value=0.0, step=0.1, key="val_embalagem")
-    
-    # Botão salvar
-    if st.button("Save All Settings", type="primary", use_container_width=True):
-        # Atualizar configurações
-        config['preco_metro'] = preco_metro
-        config['largura_rolo'] = largura_rolo
-        config['labels']['energia'] = label_energia
-        config['labels']['transporte'] = label_transporte
-        config['labels']['embalagem'] = label_embalagem
-        config['fixed_costs']['energia'] = valor_energia
-        config['fixed_costs']['transporte'] = valor_transporte
-        config['fixed_costs']['embalagem'] = valor_embalagem
-        
-        # Salvar
-        salvar_dados(data)
-        st.session_state.data = data
-        st.success("Settings saved successfully!")
-
-# --- FUNÇÃO PARA GERAR NOTA FISCAL ---
-def gerar_nota_fiscal(pedido, cliente):
-    """Gera nota fiscal para um pedido"""
     try:
-        # Criar arquivo temporário
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
-        pdf_path = temp_file.name
-        temp_file.close()
+        # DTF Costs
+        st.subheader("DTF Costs")
+        col_dtf1, col_dtf2, col_dtf3 = st.columns(3)
         
-        # Criar documento
-        doc = SimpleDocTemplate(pdf_path, pagesize=A4, 
-                               rightMargin=72, leftMargin=72,
-                               topMargin=72, bottomMargin=72)
+        with col_dtf1:
+            preco_metro = st.number_input("Price per Meter (R$)", 
+                                        value=data['config'].get('dtf_price_per_meter', 80.0), 
+                                        min_value=0.0, step=0.1, key="preco_metro")
         
-        elements = []
-        styles = getSampleStyleSheet()
+        with col_dtf2:
+            largura_rolo = st.number_input("Roll Width (cm)", 
+                                         value=data['config'].get('roll_width', 58.0), 
+                                         min_value=0.0, step=0.1, key="largura_rolo")
         
-        # Estilos personalizados
-        title_style = ParagraphStyle(
-            'CustomTitle',
-            parent=styles['Heading1'],
-            fontSize=16,
-            alignment=TA_CENTER,
-            spaceAfter=12
-        )
+        with col_dtf3:
+            altura_rolo = st.number_input("Roll Height (cm)", 
+                                        value=data['config'].get('roll_height', 100), 
+                                        min_value=0.0, step=0.1, key="altura_rolo")
         
-        # Título
-        title = Paragraph(f"NOTA FISCAL - ORDEM #{pedido['id']}", title_style)
-        elements.append(title)
-        elements.append(Spacer(1, 12))
+        # Custom Labels and Fixed Costs
+        st.subheader("Custom Labels and Fixed Costs")
         
-        # Informações da empresa
-        empresa_info = [
-            ["SEJA CAPRICHO", ""],
-            ["Criatividade, Personalidade e muito Capricho!", ""],
-            ["(75) 9155-5968 | @sejacapricho | sejacapricho.com.br", ""],
-            [f"Data: {pedido['data_criacao']}", f"Ordem: #{pedido['id']}"]
-        ]
+        col_label1, col_label2, col_label3 = st.columns(3)
         
-        empresa_table = Table(empresa_info, colWidths=[doc.width/2.0]*2)
-        empresa_table.setStyle(TableStyle([
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('FONTNAME', (0, 0), (0, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (0, 0), 14),
-            ('FONTSIZE', (0, 1), (-1, -1), 10),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
-        ]))
+        with col_label1:
+            st.write("**Energy**")
+            label_energia = st.text_input("Label", value=data['config'].get('energy_cost_label', 'Energy (R$)'), key="label_energia")
+            valor_energia = st.number_input("Value (R$)", value=data['config'].get('energy_cost_value', 1.0), 
+                                           min_value=0.0, step=0.1, key="val_energia")
         
-        elements.append(empresa_table)
-        elements.append(Spacer(1, 20))
+        with col_label2:
+            st.write("**Transport**")
+            label_transporte = st.text_input("Label", value=data['config'].get('transport_cost_label', 'Transport (R$)'), key="label_transporte")
+            valor_transporte = st.number_input("Value (R$)", value=data['config'].get('transport_cost_value', 2.0), 
+                                              min_value=0.0, step=0.1, key="val_transporte")
         
-        # Dados do Cliente
-        cliente_data = [
-            ["DADOS DO CLIENTE", ""],
-            ["Cliente:", cliente['nome']],
-            ["Documento:", cliente.get('documento', '')],
-            ["Endereço:", cliente.get('endereco', '')],
-            ["CEP:", cliente.get('cep', '')],
-            ["Cidade/Estado:", f"{cliente.get('cidade', '')}/{cliente.get('estado', '')}"],
-            ["Telefone:", cliente.get('telefone', '')],
-            ["Email:", cliente.get('email', '')]
-        ]
+        with col_label3:
+            st.write("**Packaging**")
+            label_embalagem = st.text_input("Label", value=data['config'].get('packaging_cost_label', 'Packaging (R$)'), key="label_embalagem")
+            valor_embalagem = st.number_input("Value (R$)", value=data['config'].get('packaging_cost_value', 1.0), 
+                                             min_value=0.0, step=0.1, key="val_embalagem")
         
-        cliente_table = Table(cliente_data, colWidths=[doc.width/3.0, doc.width*2/3.0])
-        cliente_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor(COLOR_PURPLE)),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-            ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 12),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-            ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#f5f5f5')),
-            ('GRID', (0, 0), (-1, -1), 1, colors.black),
-            ('ALIGN', (0, 1), (0, -1), 'LEFT'),
-            ('ALIGN', (1, 1), (1, -1), 'LEFT'),
-            ('FONTSIZE', (0, 1), (-1, -1), 10),
-            ('PADDING', (0, 1), (-1, -1), 6),
-        ]))
+        # General Settings
+        st.subheader("General Settings")
+        col_gen1, col_gen2 = st.columns(2)
         
-        elements.append(cliente_table)
-        elements.append(Spacer(1, 20))
+        with col_gen1:
+            default_margin = st.number_input("Default Margin %", 
+                                           value=data['config'].get('default_margin', 50.0), 
+                                           min_value=0.0, step=1.0, key="default_margin")
         
-        # Itens do Pedido
-        items_data = [["ITENS DO PEDIDO", "", "", ""], 
-                     ["Produto", "Quantidade", "Valor Unitário (R$)", "Valor Total (R$)"]]
+        with col_gen2:
+            default_production_days = st.number_input("Default Production Days", 
+                                                    value=data['config'].get('default_production_days', 5), 
+                                                    min_value=1, step=1, key="default_production_days")
         
-        if 'itens' in pedido:
-            for item in pedido['itens']:
-                item_total = float(item.get('valor_unitario', 0)) * float(item.get('quantidade', 0))
-                items_data.append([
-                    item.get('nome', ''),
-                    f"{item.get('quantidade', 0):.0f}",
-                    f"R$ {item.get('valor_unitario', 0):,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
-                    f"R$ {item_total:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                ])
-        
-        items_table = Table(items_data, colWidths=[doc.width*0.4, doc.width*0.2, doc.width*0.2, doc.width*0.2])
-        items_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor(COLOR_ORANGE)),
-            ('BACKGROUND', (0, 1), (-1, 1), colors.HexColor(COLOR_SLATE)),
-            ('TEXTCOLOR', (0, 0), (-1, 1), colors.white),
-            ('ALIGN', (0, 0), (-1, 1), 'CENTER'),
-            ('FONTNAME', (0, 0), (-1, 1), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 1), 11),
-            ('BOTTOMPADDING', (0, 0), (-1, 1), 8),
-            ('GRID', (0, 0), (-1, -1), 1, colors.black),
-            ('ALIGN', (0, 2), (-1, 2), 'CENTER'),
-            ('BACKGROUND', (0, 2), (-1, 2), colors.HexColor('#f9f9f9')),
-            ('FONTSIZE', (0, 2), (-1, 2), 10),
-            ('PADDING', (0, 2), (-1, 2), 8),
-        ]))
-        
-        elements.append(items_table)
-        elements.append(Spacer(1, 20))
-        
-        # Resumo
-        resumo_data = [
-            ["RESUMO DO PEDIDO", ""],
-            ["Tipo de Entrega:", pedido['tipo_entrega']],
-            ["Prazo de Entrega:", pedido['prazo_entrega']],
-            ["Forma de Pagamento:", pedido.get('forma_pagamento', 'A combinar')],
-            ["Status Pagamento:", "PAGO" if pedido.get('pago', False) else "PENDENTE"],
-            ["Status Entrega:", "ENTREGUE" if pedido.get('entregue', False) else "EM PRODUÇÃO"],
-            ["", ""],
-            ["VALOR TOTAL:", f"R$ {pedido['valor_total']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")]
-        ]
-        
-        resumo_table = Table(resumo_data, colWidths=[doc.width/2.0]*2)
-        resumo_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor(COLOR_GREEN)),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-            ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 12),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-            ('GRID', (0, 0), (-1, -1), 1, colors.black),
-            ('ALIGN', (0, 1), (0, -1), 'LEFT'),
-            ('ALIGN', (1, 1), (1, -1), 'LEFT'),
-            ('FONTSIZE', (0, 1), (-1, -2), 10),
-            ('PADDING', (0, 1), (-1, -2), 6),
-            ('BACKGROUND', (1, 7), (1, 7), colors.HexColor('#f0f8ff')),
-            ('FONTSIZE', (0, 7), (1, 7), 12),
-            ('FONTNAME', (0, 7), (0, 7), 'Helvetica-Bold'),
-            ('ALIGN', (1, 7), (1, 7), 'RIGHT'),
-        ]))
-        
-        elements.append(resumo_table)
-        
-        # Observações (se existirem)
-        if pedido.get('observacoes'):
-            elements.append(Spacer(1, 20))
-            obs_data = [
-                ["OBSERVAÇÕES"],
-                [pedido['observacoes']]
-            ]
-            
-            obs_table = Table(obs_data, colWidths=[doc.width])
-            obs_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor(COLOR_GRAY)),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-                ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, 0), 11),
-                ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
-                ('GRID', (0, 0), (-1, -1), 1, colors.black),
-                ('ALIGN', (0, 1), (-1, 1), 'LEFT'),
-                ('FONTSIZE', (0, 1), (-1, 1), 10),
-                ('PADDING', (0, 1), (-1, 1), 8),
-                ('BACKGROUND', (0, 1), (-1, 1), colors.HexColor('#f5f5f5')),
-            ]))
-            
-            elements.append(obs_table)
-        
-        # Rodapé
-        elements.append(Spacer(1, 30))
-        rodape = Paragraph(
-            "INFORMAÇÕES IMPORTANTES<br/>"
-            "1. Este documento não é uma nota fiscal oficial, mas sim um comprovante de ordem de serviço.<br/>"
-            "2. O prazo de produção começa a contar após a confirmação do pedido e pagamento.<br/>"
-            "3. Para dúvidas ou alterações, entre em contato com nossa equipe.<br/>"
-            "4. Agradecemos pela preferência!",
-            ParagraphStyle(
-                'Rodape',
-                parent=styles['Normal'],
-                fontSize=9,
-                alignment=TA_CENTER,
-                textColor=colors.gray
-            )
-        )
-        elements.append(rodape)
-        
-        # Assinaturas
-        elements.append(Spacer(1, 40))
-        assinaturas_data = [
-            ["", "", ""],
-            ["________________________________", "________________________________", "________________________________"],
-            ["Cliente", "Responsável", "Data de Entrega"]
-        ]
-        
-        assinaturas_table = Table(assinaturas_data, colWidths=[doc.width/3.0]*3)
-        assinaturas_table.setStyle(TableStyle([
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('FONTSIZE', (0, 0), (-1, -1), 10),
-            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-        ]))
-        
-        elements.append(assinaturas_table)
-        
-        # Construir PDF
-        doc.build(elements)
-        return pdf_path
-        
-    except Exception as e:
-        st.error(f"Error generating invoice: {str(e)}")
-        return None
+        # Botão salvar
+        if st.button("Save All Settings", type="primary", use_container_width=True):
+            try:
+                # Atualizar ou criar configurações
+                configs_to_update = {
+                    'dtf_price_per_meter': preco_metro,
+                    'roll_width': largura_rolo,
+                    'roll_height': altura_rolo,
+                    'energy_cost_label': label_energia,
+                    'transport_cost_label': label_transporte,
+                    'packaging_cost_label': label_embalagem,
+                    'energy_cost_value': valor_energia,
+                    'transport_cost_value': valor_transporte,
+                    'packaging_cost_value': valor_embalagem,
+                    'default_margin': default_margin,
+                    'default_production_days': default_production_days
+                }
+                
+                for key, value in configs_to_update.items():
+                    config_item = db.query(SystemConfig).filter(SystemConfig.key == key).first()
+                    if config_item:
+                        config_item.value = str(value)
+                        if key in ['dtf_price_per_meter', 'roll_width', 'roll_height', 'energy_cost_value', 
+                                  'transport_cost_value', 'packaging_cost_value', 'default_margin']:
+                            config_item.value_type = 'number'
+                        else:
+                            config_item.value_type = 'string'
+                    else:
+                        value_type = 'number' if isinstance(value, (int, float)) else 'string'
+                        category = 'dtf' if 'dtf' in key or 'roll' in key else \
+                                  'labels' if 'label' in key else \
+                                  'fixed_costs' if 'value' in key else \
+                                  'pricing' if 'margin' in key else 'general'
+                        
+                        config_item = SystemConfig(
+                            key=key,
+                            value=str(value),
+                            value_type=value_type,
+                            category=category,
+                            description=f"Auto-generated from settings page"
+                        )
+                        db.add(config_item)
+                
+                db.commit()
+                st.success("Settings saved successfully!")
+                
+            except Exception as e:
+                db.rollback()
+                st.error(f"Error saving settings: {str(e)}")
+    finally:
+        db.close()
 
-# --- FUNÇÃO PARA GERAR PDF (ORÇAMENTO) ---
-def gerar_pdf(orcamento):
-    """Gera PDF para um orçamento"""
-    try:
-        # Criar arquivo temporário
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
-        pdf_path = temp_file.name
-        temp_file.close()
+# --- TELA: MINHA CONTA ---
+@require_auth()
+def mostrar_account():
+    st.title("👤 My Account")
+    
+    current_user = get_current_user()
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        st.subheader("Profile Information")
         
-        # Criar documento
-        doc = SimpleDocTemplate(pdf_path, pagesize=A4, 
-                               rightMargin=72, leftMargin=72,
-                               topMargin=72, bottomMargin=72)
-        
-        elements = []
-        styles = getSampleStyleSheet()
-        
-        # Estilos personalizados
-        title_style = ParagraphStyle(
-            'CustomTitle',
-            parent=styles['Heading1'],
-            fontSize=16,
-            alignment=TA_CENTER,
-            spaceAfter=12
-        )
-        
-        # Título
-        title = Paragraph(f"ORÇAMENTO #{orcamento['numero']:04d}", title_style)
-        elements.append(title)
-        elements.append(Spacer(1, 12))
-        
-        # Informações da empresa
-        empresa_info = [
-            ["Criatividade, Personalidade e muito Capricho!", ""],
-            ["DTF Pricing Calculator", ""],
-            [f"Data: {orcamento['data']}", ""]
-        ]
-        
-        empresa_table = Table(empresa_info, colWidths=[doc.width/2.0]*2)
-        empresa_table.setStyle(TableStyle([
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('FONTNAME', (0, 0), (0, 1), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, -1), 10),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
-        ]))
-        
-        elements.append(empresa_table)
-        elements.append(Spacer(1, 20))
-        
-        # Dados do Cliente
-        cliente_data = [
-            ["DADOS DO CLIENTE", ""],
-            ["Cliente:", orcamento['cliente']],
-            ["Endereço:", orcamento['endereco']],
-            ["Tipo de Entrega:", orcamento['tipo_entrega']],
-            ["Tipo de Venda:", orcamento['tipo_venda']],
-            ["Prazo de Produção:", orcamento['prazo_producao']]
-        ]
-        
-        cliente_table = Table(cliente_data, colWidths=[doc.width/3.0, doc.width*2/3.0])
-        cliente_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor(COLOR_PURPLE)),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-            ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 12),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-            ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#f5f5f5')),
-            ('GRID', (0, 0), (-1, -1), 1, colors.black),
-            ('ALIGN', (0, 1), (0, -1), 'LEFT'),
-            ('ALIGN', (1, 1), (1, -1), 'LEFT'),
-            ('FONTSIZE', (0, 1), (-1, -1), 10),
-            ('PADDING', (0, 1), (-1, -1), 6),
-        ]))
-        
-        elements.append(cliente_table)
-        elements.append(Spacer(1, 20))
-        
-        # Itens do Orçamento
-        items_data = [["ITENS DO ORÇAMENTO", "", "", ""], 
-                     ["Produto", "Quantidade", "Valor Unitário (R$)", "Valor Total (R$)"]]
-        
-        if 'itens' in orcamento:
-            for item in orcamento['itens']:
-                item_total = float(item.get('valor_unitario', 0)) * float(item.get('quantidade', 0))
-                items_data.append([
-                    item.get('nome', ''),
-                    f"{item.get('quantidade', 0):.0f}",
-                    f"R$ {item.get('valor_unitario', 0):,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
-                    f"R$ {item_total:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                ])
-        elif 'produto' in orcamento:
-            items_data.append([
-                orcamento['produto'],
-                f"{orcamento.get('quantidade', 0):.0f}",
-                f"R$ {orcamento.get('valor_unitario', 0):,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
-                f"R$ {orcamento['valor_total']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-            ])
-        
-        items_table = Table(items_data, colWidths=[doc.width*0.4, doc.width*0.2, doc.width*0.2, doc.width*0.2])
-        items_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor(COLOR_ORANGE)),
-            ('BACKGROUND', (0, 1), (-1, 1), colors.HexColor(COLOR_SLATE)),
-            ('TEXTCOLOR', (0, 0), (-1, 1), colors.white),
-            ('ALIGN', (0, 0), (-1, 1), 'CENTER'),
-            ('FONTNAME', (0, 0), (-1, 1), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 1), 11),
-            ('BOTTOMPADDING', (0, 0), (-1, 1), 8),
-            ('GRID', (0, 0), (-1, -1), 1, colors.black),
-            ('ALIGN', (0, 2), (-1, 2), 'CENTER'),
-            ('BACKGROUND', (0, 2), (-1, 2), colors.HexColor('#f9f9f9')),
-            ('FONTSIZE', (0, 2), (-1, 2), 10),
-            ('PADDING', (0, 2), (-1, 2), 8),
-        ]))
-        
-        elements.append(items_table)
-        elements.append(Spacer(1, 20))
-        
-        # Resumo
-        resumo_data = [
-            ["RESUMO DO ORÇAMENTO", ""],
-            ["Valor Total:", f"R$ {orcamento['valor_total']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")]
-        ]
-        
-        resumo_table = Table(resumo_data, colWidths=[doc.width/2.0]*2)
-        resumo_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor(COLOR_GREEN)),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-            ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 12),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-            ('GRID', (0, 0), (-1, -1), 1, colors.black),
-            ('ALIGN', (0, 1), (0, -1), 'LEFT'),
-            ('ALIGN', (1, 1), (1, -1), 'RIGHT'),
-            ('FONTSIZE', (0, 1), (-1, -1), 11),
-            ('PADDING', (0, 1), (-1, -1), 8),
-            ('BACKGROUND', (1, 1), (1, 1), colors.HexColor('#f0f8ff')),
-        ]))
-        
-        elements.append(resumo_table)
-        
-        # Observações (se existirem)
-        if orcamento.get('observacoes'):
-            elements.append(Spacer(1, 20))
-            obs_data = [
-                ["OBSERVAÇÕES"],
-                [orcamento['observacoes']]
-            ]
+        with st.form("profile_form"):
+            username = st.text_input("Username", value=current_user['username'], disabled=True)
+            email = st.text_input("Email", value=current_user['email'])
+            full_name = st.text_input("Full Name", value=current_user.get('full_name', ''))
             
-            obs_table = Table(obs_data, colWidths=[doc.width])
-            obs_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor(COLOR_GRAY)),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-                ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, 0), 11),
-                ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
-                ('GRID', (0, 0), (-1, -1), 1, colors.black),
-                ('ALIGN', (0, 1), (-1, 1), 'LEFT'),
-                ('FONTSIZE', (0, 1), (-1, 1), 10),
-                ('PADDING', (0, 1), (-1, 1), 8),
-                ('BACKGROUND', (0, 1), (-1, 1), colors.HexColor('#f5f5f5')),
-            ]))
-            
-            elements.append(obs_table)
+            if st.form_submit_button("Update Profile", type="primary"):
+                db = SessionLocal()
+                try:
+                    user = db.query(User).filter(User.id == current_user['id']).first()
+                    if user:
+                        if validate_email(email):
+                            user.email = email.strip()
+                        user.full_name = full_name.strip()
+                        db.commit()
+                        st.session_state.current_user = user.to_dict()
+                        st.success("Profile updated successfully!")
+                    else:
+                        st.error("User not found")
+                except Exception as e:
+                    db.rollback()
+                    st.error(f"Error updating profile: {str(e)}")
+                finally:
+                    db.close()
+    
+    with col2:
+        st.subheader("Account Status")
+        st.write(f"**Role:** {'Administrator' if current_user.get('is_admin') else 'User'}")
+        st.write(f"**Status:** {'Active' if current_user.get('is_active') else 'Inactive'}")
+        st.write(f"**Member since:** {current_user.get('created_at', 'N/A')}")
+    
+    st.divider()
+    
+    # Alteração de senha
+    st.subheader("Change Password")
+    
+    with st.form("password_form"):
+        current_password = st.text_input("Current Password", type="password")
+        new_password = st.text_input("New Password", type="password")
+        confirm_password = st.text_input("Confirm New Password", type="password")
         
-        # Rodapé
-        elements.append(Spacer(1, 30))
-        rodape = Paragraph(
-            "CONDIÇÕES E INFORMAÇÕES ADICIONAIS<br/>"
-            "1. Este orçamento tem validade de 30 dias a partir da data de emissão.<br/>"
-            "2. O prazo de produção começa a contar após a confirmação do pedido e pagamento.<br/>"
-            "3. Preços sujeitos a alteração sem aviso prévio.<br/>"
-            "4. Para dúvidas, acesse nossos canais de atendimento.<br/>"
-            "(75) 9155-5968 | @sejacapricho | sejacapricho.com.br",
-            ParagraphStyle(
-                'Rodape',
-                parent=styles['Normal'],
-                fontSize=9,
-                alignment=TA_CENTER,
-                textColor=colors.gray
-            )
-        )
-        elements.append(rodape)
-        
-        # Construir PDF
-        doc.build(elements)
-        return pdf_path
-        
-    except Exception as e:
-        st.error(f"Error generating PDF: {str(e)}")
-        return None
+        if st.form_submit_button("Change Password", type="secondary"):
+            if not current_password or not new_password or not confirm_password:
+                st.warning("Please fill all password fields")
+            elif new_password != confirm_password:
+                st.error("New passwords don't match")
+            elif len(new_password) < 6:
+                st.error("Password must be at least 6 characters")
+            else:
+                success, message = auth_system.update_user_password(
+                    current_user['id'], current_password, new_password
+                )
+                if success:
+                    st.success(message)
+                else:
+                    st.error(message)
 
 # --- MAIN APP ---
 def main():
-    # Inicializar session state
-    if 'current_page' not in st.session_state:
-        st.session_state.current_page = "calculator"
+    # Configuração da página
+    st.set_page_config(
+        page_title="DTF Pricing Calculator",
+        page_icon="🖨️",
+        layout="wide",
+        initial_sidebar_state="expanded",
+        menu_items={
+            'Get Help': 'https://sejacapricho.com.br',
+            'Report a bug': 'mailto:contato@sejacapricho.com.br',
+            'About': '''
+            ## DTF Pricing Calculator v2.0
+            
+            Sistema completo de gerenciamento para DTF e estamparia.
+            
+            **Desenvolvido para:** Seja Capricho
+            **Contato:** (75) 9155-5968
+            **Website:** sejacapricho.com.br
+            '''
+        }
+    )
     
-    if 'data' not in st.session_state:
-        st.session_state.data = carregar_dados()
+    # Verificar autenticação
+    if 'auth_token' not in st.session_state or 'current_user' not in st.session_state:
+        show_login_register_page()
+        st.stop()
     
-    # Barra lateral - Menu de Navegação
+    # Obter usuário atual
+    current_user = get_current_user()
+    
+    # Sidebar com menu
     with st.sidebar:
         st.markdown(f"""
-        <div style='text-align: center; margin-bottom: 30px;'>
+        <div style='text-align: center; margin-bottom: 20px;'>
             <h1 style='color: {COLOR_PURPLE};'>🖨️ DTF PRICING</h1>
             <p style='color: {COLOR_GRAY}; font-size: 0.8em;'>Complete Management System</p>
         </div>
         """, unsafe_allow_html=True)
+        
+        # Informações do usuário
+        with st.container():
+            st.write(f"👤 **{current_user['full_name'] or current_user['username']}**")
+            st.write(f"📧 {current_user['email']}")
+            if current_user.get('is_admin'):
+                st.write("👑 **Administrator**")
+            
+            if st.button("🚪 Logout", use_container_width=True, type="secondary"):
+                auth_system.logout_user()
+                st.rerun()
+        
+        st.divider()
         
         # Menu de navegação
         menu_options = {
@@ -2492,80 +2375,97 @@ def main():
             "🏭 Suppliers": "fornecedores",
             "🛒 Orders": "pedidos",
             "📋 Budgets": "orcamentos",
-            "⚙️ Settings": "settings"
+            "⚙️ Settings": "settings",
+            "👤 My Account": "account"
         }
+        
+        # Verificar se é admin para mostrar settings
+        if not current_user.get('is_admin'):
+            menu_options.pop("⚙️ Settings", None)
         
         for label, page in menu_options.items():
             if st.button(label, 
                         use_container_width=True,
-                        type="primary" if st.session_state.current_page == page else "secondary"):
+                        type="primary" if st.session_state.get('current_page') == page else "secondary"):
                 st.session_state.current_page = page
                 st.rerun()
         
         st.divider()
         
         # Dashboard rápido (pendências)
-        if st.session_state.data:
-            # Contar pedidos pendentes
-            pedidos_pendentes = sum(1 for p in st.session_state.data['pedidos'] 
-                                  if not p.get('pago', False) and 
-                                  (datetime.now() - datetime.strptime(p['data_criacao'], "%d/%m/%Y %H:%M")) > timedelta(hours=24))
+        data = carregar_dados()
+        
+        # Contar pedidos pendentes
+        pedidos_pendentes = []
+        for pedido in data['pedidos']:
+            if pedido.get('payment_status') != 'paid':
+                created_at = pedido.get('created_at')
+                if created_at:
+                    try:
+                        data_criacao = datetime.fromisoformat(created_at)
+                        if (datetime.now() - data_criacao) > timedelta(hours=24):
+                            pedidos_pendentes.append(pedido)
+                    except:
+                        pass
+        
+        pedidos_recentes = [p for p in data['pedidos'] if p.get('payment_status') != 'paid' and p not in pedidos_pendentes]
+        
+        if pedidos_pendentes or pedidos_recentes:
+            st.subheader("📊 Quick Dashboard")
             
-            pedidos_recentes = sum(1 for p in st.session_state.data['pedidos'] 
-                                 if not p.get('pago', False) and 
-                                 (datetime.now() - datetime.strptime(p['data_criacao'], "%d/%m/%Y %H:%M")) <= timedelta(hours=24))
+            if pedidos_pendentes:
+                st.error(f"⚠️ {len(pedidos_pendentes)} overdue orders!")
             
-            if pedidos_pendentes > 0 or pedidos_recentes > 0:
-                st.subheader("📊 Quick Dashboard")
-                
-                if pedidos_pendentes > 0:
-                    st.error(f"⚠️ {pedidos_pendentes} overdue orders!")
-                
-                if pedidos_recentes > 0:
-                    st.warning(f"⏳ {pedidos_recentes} recent orders")
+            if pedidos_recentes:
+                st.warning(f"⏳ {len(pedidos_recentes)} recent orders")
         
         # Informações da sessão
-        if st.session_state.data:
-            st.divider()
-            st.caption(f"Products: {len(st.session_state.data['produtos'])}")
-            st.caption(f"Clients: {len(st.session_state.data['clientes'])}")
-            st.caption(f"Suppliers: {len(st.session_state.data['fornecedores'])}")
-            st.caption(f"Orders: {len(st.session_state.data['pedidos'])}")
-            st.caption(f"Budgets: {len(st.session_state.data['orcamentos'])}")
+        st.divider()
+        st.caption(f"📦 Products: {len(data['produtos'])}")
+        st.caption(f"👥 Clients: {len(data['clientes'])}")
+        st.caption(f"🏭 Suppliers: {len(data['fornecedores'])}")
+        st.caption(f"🛒 Orders: {len(data['pedidos'])}")
+        st.caption(f"📋 Budgets: {len(data['orcamentos'])}")
     
     # Conteúdo principal baseado na página atual
-    if st.session_state.current_page == "calculator":
+    page = st.session_state.get('current_page', 'calculator')
+    
+    if page == "calculator":
         mostrar_calculator()
-    elif st.session_state.current_page == "products":
+    elif page == "products":
         mostrar_products()
-    elif st.session_state.current_page == "clientes":
+    elif page == "clientes":
         mostrar_clientes()
-    elif st.session_state.current_page == "novo_cliente":
+    elif page == "novo_cliente":
         mostrar_novo_cliente()
-    elif st.session_state.current_page == "view_cliente":
+    elif page == "view_cliente":
         mostrar_view_cliente()
-    elif st.session_state.current_page == "edit_cliente":
+    elif page == "edit_cliente":
         mostrar_edit_cliente()
-    elif st.session_state.current_page == "fornecedores":
+    elif page == "fornecedores":
         mostrar_fornecedores()
-    elif st.session_state.current_page == "novo_fornecedor":
+    elif page == "novo_fornecedor":
         mostrar_novo_fornecedor()
-    elif st.session_state.current_page == "edit_fornecedor":
+    elif page == "edit_fornecedor":
         mostrar_edit_fornecedor()
-    elif st.session_state.current_page == "pedidos":
+    elif page == "pedidos":
         mostrar_pedidos()
-    elif st.session_state.current_page == "novo_pedido":
+    elif page == "novo_pedido":
         mostrar_novo_pedido()
-    elif st.session_state.current_page == "view_pedido":
+    elif page == "view_pedido":
         mostrar_view_pedido()
-    elif st.session_state.current_page == "orcamentos":
+    elif page == "orcamentos":
         mostrar_orcamentos()
-    elif st.session_state.current_page == "create_budget":
+    elif page == "create_budget":
         mostrar_create_budget()
-    elif st.session_state.current_page == "view_budget":
+    elif page == "view_budget":
         mostrar_view_budget()
-    elif st.session_state.current_page == "settings":
+    elif page == "settings":
         mostrar_settings()
+    elif page == "account":
+        mostrar_account()
+    else:
+        mostrar_calculator()
 
 if __name__ == "__main__":
     main()
