@@ -4,7 +4,7 @@ from typing import Optional
 import jwt
 from sqlalchemy.orm import Session
 from models import User, SessionLocal
-from utils.security import verify_password, hash_password
+from security import verify_password, hash_password  # CORRIGIDO: removido utils.
 
 # Configurações JWT - fallback se config.py não existir
 try:
