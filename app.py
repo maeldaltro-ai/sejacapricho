@@ -1,3 +1,13 @@
+import os
+import sys
+
+# Adicionar o diretório atual ao path para importações locais
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+# Configurar DATABASE_URL se não existir
+if not os.getenv("DATABASE_URL"):
+    os.environ["DATABASE_URL"] = "sqlite:///./app.db"
+
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
