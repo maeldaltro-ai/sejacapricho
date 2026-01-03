@@ -4,7 +4,7 @@ from typing import Optional
 import jwt
 from sqlalchemy.orm import Session
 from models import User, SessionLocal
-from security import verify_password, hash_password  # CORRIGIDO: removido utils.
+from security import verify_password, hash_password
 
 # Configurações JWT - fallback se config.py não existir
 try:
@@ -145,26 +145,33 @@ def show_login_register_page():
     tab1, tab2 = st.tabs(["Login", "Registro"])
     
     with tab1:
-        with st.form("login_form"):
+        # Formulário de Login - CORRIGIDO
+        login_form = st.form(key="login_form")
+        
+        with login_form:
             username = st.text_input("Usuário ou Email")
             password = st.text_input("Senha", type="password")
-            submit = st.form_submit_button("Entrar")
-            
-            if submit:
-                if username and password:
-                    success, user, token = auth_system.login_user(username, password)
-                    if success and user:
-                        st.session_state.auth_token = token
-                        st.session_state.current_user = user.to_dict()
-                        st.success("Login realizado com sucesso!")
-                        st.rerun()
-                    else:
-                        st.error(f"Falha no login: {token if not success else 'Erro desconhecido'}")
+            submit_button = st.form_submit_button("Entrar")
+        
+        # Processamento do login (fora do formulário)
+        if submit_button:
+            if username and password:
+                success, user, token = auth_system.login_user(username, password)
+                if success and user:
+                    st.session_state.auth_token = token
+                    st.session_state.current_user = user.to_dict()
+                    st.success("Login realizado com sucesso!")
+                    st.rerun()
                 else:
-                    st.warning("Preencha todos os campos")
+                    st.error(f"Falha no login: {token if not success else 'Erro desconhecido'}")
+            else:
+                st.warning("Preencha todos os campos")
     
     with tab2:
-        with st.form("register_form"):
+        # Formulário de Registro - CORRIGIDO
+        register_form = st.form(key="register_form")
+        
+        with register_form:
             col1, col2 = st.columns(2)
             with col1:
                 username = st.text_input("Nome de usuário")
@@ -174,27 +181,28 @@ def show_login_register_page():
                 password = st.text_input("Senha", type="password")
                 confirm_password = st.text_input("Confirmar Senha", type="password")
             
-            submit = st.form_submit_button("Registrar")
-            
-            if submit:
-                if not all([username, email, password, confirm_password]):
-                    st.warning("Preencha todos os campos obrigatórios")
-                elif password != confirm_password:
-                    st.error("As senhas não coincidem")
-                elif len(password) < 6:
-                    st.error("A senha deve ter pelo menos 6 caracteres")
+            submit_button = st.form_submit_button("Registrar")
+        
+        # Processamento do registro (fora do formulário)
+        if submit_button:
+            if not all([username, email, password, confirm_password]):
+                st.warning("Preencha todos os campos obrigatórios")
+            elif password != confirm_password:
+                st.error("As senhas não coincidem")
+            elif len(password) < 6:
+                st.error("A senha deve ter pelo menos 6 caracteres")
+            else:
+                success, message = auth_system.register_user(username, email, password, full_name)
+                if success:
+                    st.success(message)
+                    # Auto-login após registro
+                    success, user, token = auth_system.login_user(username, password)
+                    if success and user:
+                        st.session_state.auth_token = token
+                        st.session_state.current_user = user.to_dict()
+                        st.rerun()
                 else:
-                    success, message = auth_system.register_user(username, email, password, full_name)
-                    if success:
-                        st.success(message)
-                        # Auto-login após registro
-                        success, user, token = auth_system.login_user(username, password)
-                        if success and user:
-                            st.session_state.auth_token = token
-                            st.session_state.current_user = user.to_dict()
-                            st.rerun()
-                    else:
-                        st.error(message)
+                    st.error(message)
 
 def require_auth():
     """Decorador para requerer autenticação"""
