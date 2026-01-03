@@ -11,7 +11,7 @@ if not DATABASE_URL:
     # Tentar importar do config, se existir
     try:
         from config import config
-        DATABASE_URL = config.DATABASE_URL
+        DATABASE_URL = config.SQLALCHEMY_DATABASE_URI  # CORRIGIDO: usar SQLALCHEMY_DATABASE_URI
     except (ImportError, AttributeError):
         # Fallback para SQLite
         DATABASE_URL = "sqlite:///./app.db"
@@ -298,7 +298,7 @@ def init_db():
     db = SessionLocal()
     try:
         # Importar aqui para evitar import circular
-        from utils.security import hash_password
+        from security import hash_password  # CORRIGIDO: removido utils.
         
         admin_user = db.query(User).filter(User.username == 'admin').first()
         if not admin_user:
