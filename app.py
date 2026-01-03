@@ -1956,241 +1956,582 @@ def mostrar_pedidos():
         st.info("Nenhum pedido criado ainda. Crie seu primeiro pedido!")
 
 # --- TELA: NOVO PEDIDO ---
-
 @require_auth()
 def mostrar_novo_pedido():
     st.title("🛒 Novo Pedido")
     
+    # Inicializar estados do fluxo
+    if 'pedido_etapa' not in st.session_state:
+        st.session_state.pedido_etapa = 1  # 1: Selecionar cliente, 2: Configurar pedido, 3: Finalizar
+    
+    if 'pedido_cliente_selecionado' not in st.session_state:
+        st.session_state.pedido_cliente_selecionado = None
+    
+    if 'pedido_itens_calculados' not in st.session_state:
+        st.session_state.pedido_itens_calculados = []
+    
+    if 'pedido_info' not in st.session_state:
+        st.session_state.pedido_info = {
+            'tipo_entrega': 'Pronta Entrega',
+            'prazo_entrega': '5 dias úteis',
+            'forma_pagamento': 'Não Definido',
+            'observacoes': ''
+        }
+    
+    # Carregar dados
     data = carregar_dados()
     
-    # Inicializar variáveis
-    if 'selected_products' not in st.session_state:
-        st.session_state.selected_products = []
-    
-    if 'manual_items' not in st.session_state:
-        st.session_state.manual_items = []
-    
-    # Formulário principal
-    with st.form("pedido_form"):
-        col1, col2 = st.columns(2)
+    # ETAPA 1: SELEÇÃO DO CLIENTE
+    if st.session_state.pedido_etapa == 1:
+        st.subheader("1️⃣ Seleção do Cliente")
         
-        with col1:
-            # Seleção de cliente - FORA DO FORMULÁRIO para atualização dinâmica
-            # Primeiro, vamos remover a seleção do cliente do formulário
-            pass
+        # Seleção de cliente
+        clientes_options = [c['name'] for c in data['clientes']]
         
-        with col2:
-            prazo_entrega = st.text_input("Prazo de Entrega", value="5 dias úteis")
-            tipo_entrega = st.radio("Tipo de Entrega", ["Pronta Entrega", "Sob Encomenda"])
-            forma_pagamento = st.selectbox("Forma de Pagamento", 
-                                          ["Não Definido", "Dinheiro", "Cartão de Crédito", 
-                                           "Cartão de Débito", "PIX", "Transferência Bancária"])
-            observacoes = st.text_area("Observações", placeholder="Informações adicionais")
+        # Se veio da tela de clientes, pré-selecionar
+        if st.session_state.get('novo_pedido_cliente'):
+            cliente_pre_selecionado = st.session_state.novo_pedido_cliente['name']
+            index = clientes_options.index(cliente_pre_selecionado) if cliente_pre_selecionado in clientes_options else 0
+            # Armazenar cliente pré-selecionado
+            for c in data['clientes']:
+                if c['name'] == cliente_pre_selecionado:
+                    st.session_state.pedido_cliente_selecionado = c
+                    break
+        else:
+            index = 0
         
-        # Seção para adicionar produtos
-        st.subheader("Adicionar Produtos")
+        cliente_selecionado = st.selectbox(
+            "Selecione o cliente *", 
+            clientes_options,
+            index=index,
+            key="cliente_selecionado_pedido"
+        )
         
-        col_prod1, col_prod2, col_prod3 = st.columns(3)
-        with col_prod1:
-            produto_selecionado = st.selectbox("Produto", 
-                                              ["Apenas DTF"] + [p['nome'] for p in data['produtos']])
+        # Obter cliente selecionado
+        cliente_atual = None
+        for c in data['clientes']:
+            if c['name'] == cliente_selecionado:
+                cliente_atual = c
+                break
         
-        with col_prod2:
-            quantidade = st.number_input("Quantidade", min_value=1, value=1)
-        
-        with col_prod3:
-            valor_unitario = st.number_input("Valor Unitário (R$)", min_value=0.0, value=0.0, step=0.01)
-        
-        if st.form_submit_button("Adicionar Produto ao Pedido", type="secondary", use_container_width=True):
-            if produto_selecionado and quantidade > 0:
-                novo_item = {
-                    "nome": produto_selecionado,
-                    "quantidade": quantidade,
-                    "valor_unitario": valor_unitario,
-                    "preco_total": valor_unitario * quantidade
-                }
-                st.session_state.manual_items.append(novo_item)
-                st.success(f"Produto '{produto_selecionado}' adicionado!")
-        
-        # Mostrar itens adicionados
-        if st.session_state.manual_items:
-            st.write("**Itens no Pedido:**")
-            total_pedido = 0
+        # Mostrar informações do cliente
+        if cliente_atual:
+            st.success(f"✅ Cliente selecionado: **{cliente_atual['name']}**")
             
-            for i, item in enumerate(st.session_state.manual_items):
-                col_item1, col_item2, col_item3, col_item4 = st.columns([3, 1, 2, 1])
-                with col_item1:
-                    st.write(f"• {item['nome']}")
-                with col_item2:
-                    st.write(f"Qtd: {item['quantidade']}")
-                with col_item3:
-                    st.write(f"Unit: {formatar_moeda(item['valor_unitario'])}")
-                    total_item = item['valor_unitario'] * item['quantidade']
-                    st.write(f"**Total:** {formatar_moeda(total_item)}")
-                    total_pedido += total_item
-                
-                with col_item4:
-                    if st.form_submit_button("❌", key=f"remove_item_{i}"):
-                        st.session_state.manual_items.pop(i)
-                        st.rerun()
-            
-            st.write(f"**Total do Pedido:** {formatar_moeda(total_pedido)}")
-        
-        # Mostrar itens da calculadora se existirem
-        if st.session_state.get('selected_products'):
-            st.write("**Itens da Calculadora:**")
-            for i, item in enumerate(st.session_state.selected_products):
-                col_item1, col_item2, col_item3 = st.columns([3, 1, 2])
-                with col_item1:
-                    st.write(f"• {item['nome']}")
-                with col_item2:
-                    st.write(f"Qtd: {item['quantidade']}")
-                with col_item3:
-                    st.write(f"Unit: {formatar_moeda(item['preco_unitario'])}")
+            with st.container(border=True):
+                col_info1, col_info2 = st.columns(2)
+                with col_info1:
+                    st.write(f"**📋 Documento:** {cliente_atual.get('document', 'N/A')}")
+                    st.write(f"**📍 Endereço:** {cliente_atual.get('address', 'N/A')}")
+                with col_info2:
+                    st.write(f"**📞 Telefone:** {cliente_atual.get('phone', 'N/A')}")
+                    st.write(f"**📧 Email:** {cliente_atual.get('email', 'N/A')}")
         
         # Botões de ação
         col_btn1, col_btn2, col_btn3 = st.columns(3)
         
         with col_btn1:
-            save_clicked = st.form_submit_button("Salvar Pedido", type="primary", use_container_width=True)
+            if st.button("← Cancelar", type="secondary", use_container_width=True):
+                # Limpar dados temporários
+                if 'novo_pedido_cliente' in st.session_state:
+                    del st.session_state.novo_pedido_cliente
+                st.session_state.current_page = "pedidos"
+                st.rerun()
         
         with col_btn2:
-            save_pdf_clicked = st.form_submit_button("Salvar e Gerar Nota", use_container_width=True)
+            if cliente_atual:
+                if st.button("🔄 Limpar Seleção", type="secondary", use_container_width=True):
+                    st.session_state.pedido_cliente_selecionado = None
+                    st.rerun()
         
         with col_btn3:
-            cancel_clicked = st.form_submit_button("Cancelar", type="secondary", use_container_width=True)
+            if cliente_atual and st.button("👉 Avançar", type="primary", use_container_width=True):
+                st.session_state.pedido_cliente_selecionado = cliente_atual
+                st.session_state.pedido_etapa = 2
+                st.rerun()
     
-    # SELEÇÃO DO CLIENTE FORA DO FORMULÁRIO (para atualização dinâmica)
-    st.subheader("👤 Seleção do Cliente")
-    
-    clientes_options = [c['name'] for c in data['clientes']]
-    
-    if st.session_state.get('novo_pedido_cliente'):
-        cliente_pre_selecionado = st.session_state.novo_pedido_cliente['name']
-        index = clientes_options.index(cliente_pre_selecionado) if cliente_pre_selecionado in clientes_options else 0
-    else:
-        index = 0
-    
-    # Selectbox de cliente FORA do formulário para permitir atualização dinâmica
-    cliente_selecionado = st.selectbox(
-        "Cliente *", 
-        clientes_options,
-        index=index,
-        key="cliente_selecionado_novo_pedido"
-    )
-    
-    # Obter cliente selecionado
-    cliente_atual = None
-    for c in data['clientes']:
-        if c['name'] == cliente_selecionado:
-            cliente_atual = c
-            break
-    
-    # Mostrar informações do cliente dinamicamente
-    if cliente_atual:
-        st.info(f"""
-        **📋 Dados do Cliente Selecionado:**
+    # ETAPA 2: CONFIGURAÇÃO DO PEDIDO
+    elif st.session_state.pedido_etapa == 2:
+        cliente = st.session_state.pedido_cliente_selecionado
         
-        **Nome:** {cliente_atual.get('name', 'N/A')}
-        **Documento:** {cliente_atual.get('document', 'N/A')}
-        **Endereço:** {cliente_atual.get('address', 'N/A')}
-        **Telefone:** {cliente_atual.get('phone', 'N/A')}
-        **Email:** {cliente_atual.get('email', 'N/A')}
-        """)
-    else:
-        st.warning("Nenhum cliente selecionado ou cliente não encontrado!")
-    
-    st.divider()
-    
-    # Processar ações APÓS o formulário
-    if cancel_clicked:
-        # Limpar dados temporários
-        if 'manual_items' in st.session_state:
-            st.session_state.manual_items = []
-        if 'novo_pedido_cliente' in st.session_state:
-            del st.session_state.novo_pedido_cliente
-        st.session_state.current_page = "pedidos"
-        st.rerun()
-    
-    if save_clicked or save_pdf_clicked:
-        if not cliente_selecionado:
-            st.error("❌ Cliente é obrigatório!")
-        elif not st.session_state.manual_items and not st.session_state.get('selected_products'):
-            st.warning("⚠️ Adicione pelo menos um item ao pedido!")
+        if not cliente:
+            st.error("❌ Nenhum cliente selecionado!")
+            st.session_state.pedido_etapa = 1
+            st.rerun()
+        
+        st.subheader(f"2️⃣ Configurar Pedido para {cliente['name']}")
+        
+        # Informações do cliente (fixas)
+        with st.container(border=True):
+            col_cliente1, col_cliente2 = st.columns(2)
+            with col_cliente1:
+                st.write(f"**👤 Cliente:** {cliente['name']}")
+                st.write(f"**📋 Documento:** {cliente.get('document', 'N/A')}")
+            with col_cliente2:
+                st.write(f"**📍 Endereço:** {cliente.get('address', 'N/A')}")
+                st.write(f"**📞 Telefone:** {cliente.get('phone', 'N/A')}")
+        
+        st.divider()
+        
+        # CONFIGURAR PRODUTOS (simulando calculadora)
+        st.subheader("➕ Adicionar Produtos ao Pedido")
+        
+        col_prod1, col_prod2 = st.columns([2, 1])
+        
+        with col_prod1:
+            # Seleção de produto
+            product_names = [p['nome'] for p in data['produtos']]
+            if not product_names:
+                product_names = ["Nenhum produto disponível"]
+            
+            produto_selecionado = st.selectbox("Produto", product_names, key="produto_pedido_calc")
+            
+            # Obter produto selecionado
+            produto_atual = None
+            for p in data['produtos']:
+                if p['nome'] == produto_selecionado:
+                    produto_atual = p
+                    break
+            
+            if produto_atual:
+                # Toggle DTF
+                col_toggle1, col_toggle2 = st.columns(2)
+                with col_toggle1:
+                    usa_dtf = st.toggle("DTF", value=produto_atual.get('usa_dtf', True), key="usa_dtf_pedido")
+                
+                with col_toggle2:
+                    incluir_custos_fixos = st.toggle("Incluir Custos Fixos", value=True, key="custos_fixos_pedido")
+                
+                # Dimensões (somente se usa_dtf for True)
+                if usa_dtf:
+                    st.subheader("📏 Dimensões da Estampa (cm)")
+                    dim_cols = st.columns(4)
+                    with dim_cols[0]:
+                        frente_altura = st.number_input("Altura Frente", min_value=0.0, value=10.0, step=0.5, key="frente_altura_pedido")
+                    with dim_cols[1]:
+                        frente_largura = st.number_input("Largura Frente", min_value=0.0, value=10.0, step=0.5, key="frente_largura_pedido")
+                    with dim_cols[2]:
+                        costas_altura = st.number_input("Altura Costas", min_value=0.0, value=0.0, step=0.5, key="costas_altura_pedido")
+                    with dim_cols[3]:
+                        costas_largura = st.number_input("Largura Costas", min_value=0.0, value=0.0, step=0.5, key="costas_largura_pedido")
+                else:
+                    frente_altura = frente_largura = costas_altura = costas_largura = 0.0
+                
+                # Quantidade e Margem
+                qtd_cols = st.columns(2)
+                with qtd_cols[0]:
+                    quantidade = st.number_input("Quantidade", min_value=1, value=1, key="quantidade_pedido")
+                with qtd_cols[1]:
+                    margem = st.number_input("Margem %", min_value=0.0, value=data['config'].get('default_margin', 50.0), step=1.0, key="margem_pedido")
+        
+        with col_prod2:
+            st.subheader("📊 Resultado")
+            
+            if produto_atual and st.button("Calcular Preço", type="primary", use_container_width=True, key="calcular_preco_pedido"):
+                # Cálculo da área
+                area_frente = frente_altura * frente_largura
+                area_costas = costas_altura * costas_largura
+                area_total = area_frente + area_costas
+                
+                # Cálculo DTF
+                custo_dtf = 0
+                if usa_dtf and area_total > 0:
+                    preco_metro = data['config'].get('dtf_price_per_meter', 80.0)
+                    largura_rolo = data['config'].get('roll_width', 58.0)
+                    altura_rolo = data['config'].get('roll_height', 100)
+                    area_metro_linear = largura_rolo * altura_rolo
+                    custo_cm2 = preco_metro / area_metro_linear
+                    custo_dtf = area_total * custo_cm2
+                
+                # Custos fixos
+                custos_fixos = 0
+                if incluir_custos_fixos:
+                    custos_fixos = (produto_atual.get('energy_cost', produto_atual.get('energia', 0)) + 
+                                   produto_atual.get('transport_cost', produto_atual.get('transp', 0)) + 
+                                   produto_atual.get('packaging_cost', produto_atual.get('emb', 0)))
+                    
+                    # Adicionar custos fixos globais
+                    custos_fixos += (data['config'].get('energy_cost_value', 1.0) + 
+                                    data['config'].get('transport_cost_value', 2.0) + 
+                                    data['config'].get('packaging_cost_value', 1.0))
+                
+                # Cálculo final
+                custo_unitario = produto_atual.get('custo', produto_atual.get('cost', 0)) + custo_dtf + custos_fixos
+                preco_unitario = custo_unitario * (1 + margem / 100)
+                preco_total = preco_unitario * quantidade
+                
+                # Armazenar cálculo
+                st.session_state.calculo_atual = {
+                    'produto': produto_atual['nome'],
+                    'preco_unitario': preco_unitario,
+                    'quantidade': quantidade,
+                    'preco_total': preco_total,
+                    'area_total': area_total,
+                    'usa_dtf': usa_dtf,
+                    'dimensoes': {
+                        'frente_altura': frente_altura,
+                        'frente_largura': frente_largura,
+                        'costas_altura': costas_altura,
+                        'costas_largura': costas_largura
+                    }
+                }
+                st.success(f"Preço calculado: {formatar_moeda(preco_total)}")
+            
+            # Mostrar cálculo atual
+            if 'calculo_atual' in st.session_state:
+                calc = st.session_state.calculo_atual
+                
+                st.metric("Preço Total", formatar_moeda(calc['preco_total']))
+                st.write(f"**Produto:** {calc['produto']}")
+                st.write(f"**Preço Unitário:** {formatar_moeda(calc['preco_unitario'])}")
+                st.write(f"**Quantidade:** {calc['quantidade']}")
+                if calc['usa_dtf']:
+                    st.write(f"**Área Total:** {calc['area_total']:.2f} cm²")
+                
+                # Botão para adicionar ao pedido
+                if st.button("➕ Adicionar ao Pedido", type="primary", use_container_width=True, key="adicionar_calculo_pedido"):
+                    novo_item = {
+                        'nome': calc['produto'],
+                        'preco_unitario': calc['preco_unitario'],
+                        'quantidade': calc['quantidade'],
+                        'preco_total': calc['preco_total'],
+                        'detalhes': {
+                            'usa_dtf': calc['usa_dtf'],
+                            'area_total': calc['area_total'],
+                            'dimensoes': calc['dimensoes']
+                        }
+                    }
+                    
+                    # Verificar se item já existe
+                    item_existente = None
+                    for i, item in enumerate(st.session_state.pedido_itens_calculados):
+                        if item['nome'] == novo_item['nome'] and item['preco_unitario'] == novo_item['preco_unitario']:
+                            item_existente = i
+                            break
+                    
+                    if item_existente is not None:
+                        # Atualizar quantidade
+                        st.session_state.pedido_itens_calculados[item_existente]['quantidade'] += novo_item['quantidade']
+                        st.session_state.pedido_itens_calculados[item_existente]['preco_total'] += novo_item['preco_total']
+                        st.success(f"Quantidade do item '{novo_item['nome']}' atualizada!")
+                    else:
+                        st.session_state.pedido_itens_calculados.append(novo_item)
+                        st.success(f"Item '{novo_item['nome']}' adicionado ao pedido!")
+                    
+                    st.rerun()
+        
+        # LISTA DE ITENS NO PEDIDO
+        st.divider()
+        st.subheader("📋 Itens no Pedido")
+        
+        if st.session_state.pedido_itens_calculados:
+            total_geral = 0
+            
+            for i, item in enumerate(st.session_state.pedido_itens_calculados):
+                with st.container(border=True):
+                    col_item1, col_item2, col_item3 = st.columns([3, 1, 1])
+                    
+                    with col_item1:
+                        st.write(f"**{item['nome']}**")
+                        if item['detalhes']['usa_dtf']:
+                            st.write(f"Área: {item['detalhes']['area_total']:.2f} cm²")
+                    
+                    with col_item2:
+                        st.write(f"Qtd: {item['quantidade']}")
+                        st.write(f"Unit: {formatar_moeda(item['preco_unitario'])}")
+                    
+                    with col_item3:
+                        st.write(f"**Total:** {formatar_moeda(item['preco_total'])}")
+                        total_geral += item['preco_total']
+                        
+                        if st.button("🗑️", key=f"remover_item_{i}", help="Remover item"):
+                            st.session_state.pedido_itens_calculados.pop(i)
+                            st.rerun()
+            
+            st.metric("💰 Total do Pedido", formatar_moeda(total_geral))
         else:
-            # Calcular valor total
-            total = 0
-            
-            # Somar itens da calculadora
-            if st.session_state.get('selected_products'):
-                total += sum(item['preco_total'] for item in st.session_state.selected_products)
-            
-            # Somar itens manuais
-            if st.session_state.manual_items:
-                total += sum(item['preco_total'] for item in st.session_state.manual_items)
-            
-            # Criar novo pedido no banco
-            db = SessionLocal()
-            try:
-                current_user = get_current_user()
-                user = db.query(User).filter(User.id == current_user['id']).first()
-                
-                customer = db.query(Customer).filter(Customer.id == cliente_atual['id']).first()
-                
-                # Gerar número do pedido
-                ultimo_numero = db.query(Order).count() + 1
-                
-                # Preparar itens para salvar
-                itens_para_salvar = []
-                
-                # Adicionar itens da calculadora
-                if st.session_state.get('selected_products'):
-                    for item in st.session_state.selected_products:
+            st.info("Nenhum item adicionado ao pedido ainda. Calcule e adicione produtos acima.")
+        
+        # CONFIGURAÇÕES ADICIONAIS
+        st.divider()
+        st.subheader("⚙️ Configurações do Pedido")
+        
+        col_config1, col_config2 = st.columns(2)
+        with col_config1:
+            st.session_state.pedido_info['tipo_entrega'] = st.radio(
+                "Tipo de Entrega", 
+                ["Pronta Entrega", "Sob Encomenda"],
+                index=0 if st.session_state.pedido_info['tipo_entrega'] == 'Pronta Entrega' else 1
+            )
+            st.session_state.pedido_info['prazo_entrega'] = st.text_input(
+                "Prazo de Entrega", 
+                value=st.session_state.pedido_info['prazo_entrega']
+            )
+        
+        with col_config2:
+            st.session_state.pedido_info['forma_pagamento'] = st.selectbox(
+                "Forma de Pagamento", 
+                ["Não Definido", "Dinheiro", "Cartão de Crédito", "Cartão de Débito", "PIX", "Transferência Bancária"],
+                index=["Não Definido", "Dinheiro", "Cartão de Crédito", "Cartão de Débito", "PIX", "Transferência Bancária"].index(
+                    st.session_state.pedido_info['forma_pagamento']
+                )
+            )
+            st.session_state.pedido_info['observacoes'] = st.text_area(
+                "Observações", 
+                value=st.session_state.pedido_info['observacoes'],
+                placeholder="Informações adicionais sobre o pedido..."
+            )
+        
+        # BOTÕES DE NAVEGAÇÃO
+        st.divider()
+        col_nav1, col_nav2, col_nav3, col_nav4 = st.columns(4)
+        
+        with col_nav1:
+            if st.button("← Voltar", type="secondary", use_container_width=True):
+                st.session_state.pedido_etapa = 1
+                st.rerun()
+        
+        with col_nav2:
+            if st.button("💾 Salvar", type="secondary", use_container_width=True, 
+                        disabled=len(st.session_state.pedido_itens_calculados) == 0):
+                # Salvar pedido como rascunho (sem status de pagamento/entrega)
+                db = SessionLocal()
+                try:
+                    current_user = get_current_user()
+                    user = db.query(User).filter(User.id == current_user['id']).first()
+                    
+                    customer = db.query(Customer).filter(Customer.id == cliente['id']).first()
+                    
+                    # Gerar número do pedido
+                    ultimo_numero = db.query(Order).count() + 1
+                    
+                    # Preparar itens para salvar
+                    itens_para_salvar = []
+                    for item in st.session_state.pedido_itens_calculados:
                         itens_para_salvar.append({
                             "nome": item['nome'],
                             "quantidade": item['quantidade'],
                             "valor_unitario": item['preco_unitario']
                         })
+                    
+                    novo_pedido = Order(
+                        order_number=str(ultimo_numero).zfill(4),
+                        customer=customer,
+                        user=user,
+                        total_amount=sum(item['preco_total'] for item in st.session_state.pedido_itens_calculados),
+                        items=json.dumps(itens_para_salvar),
+                        delivery_type=st.session_state.pedido_info['tipo_entrega'],
+                        delivery_deadline=st.session_state.pedido_info['prazo_entrega'],
+                        payment_method=st.session_state.pedido_info['forma_pagamento'] if st.session_state.pedido_info['forma_pagamento'] != "Não Definido" else "",
+                        payment_status='pending',
+                        delivery_status='production',
+                        notes=st.session_state.pedido_info['observacoes'].strip()
+                    )
+                    
+                    db.add(novo_pedido)
+                    db.commit()
+                    
+                    st.success(f"✅ Pedido #{ultimo_numero} salvo como rascunho!")
+                    
+                    # Limpar dados temporários, mas manter na mesma etapa
+                    if 'calculo_atual' in st.session_state:
+                        del st.session_state.calculo_atual
+                    
+                    st.rerun()
+                    
+                except Exception as e:
+                    db.rollback()
+                    st.error(f"Erro ao salvar pedido: {str(e)}")
+                finally:
+                    db.close()
+        
+        with col_nav3:
+            if st.button("❌ Cancelar", type="secondary", use_container_width=True):
+                # Limpar todos os dados do pedido
+                st.session_state.pedido_etapa = 1
+                st.session_state.pedido_cliente_selecionado = None
+                st.session_state.pedido_itens_calculados = []
+                st.session_state.pedido_info = {
+                    'tipo_entrega': 'Pronta Entrega',
+                    'prazo_entrega': '5 dias úteis',
+                    'forma_pagamento': 'Não Definido',
+                    'observacoes': ''
+                }
+                if 'calculo_atual' in st.session_state:
+                    del st.session_state.calculo_atual
                 
-                # Adicionar itens manuais
-                if st.session_state.manual_items:
-                    for item in st.session_state.manual_items:
+                st.success("Pedido cancelado!")
+                st.rerun()
+        
+        with col_nav4:
+            if len(st.session_state.pedido_itens_calculados) > 0:
+                if st.button("✅ Finalizar", type="primary", use_container_width=True):
+                    st.session_state.pedido_etapa = 3
+                    st.rerun()
+            else:
+                st.button("✅ Finalizar", type="primary", use_container_width=True, disabled=True)
+    
+    # ETAPA 3: FINALIZAÇÃO
+    elif st.session_state.pedido_etapa == 3:
+        cliente = st.session_state.pedido_cliente_selecionado
+        
+        st.subheader(f"3️⃣ Finalizar Pedido para {cliente['name']}")
+        
+        # RESUMO DO PEDIDO
+        with st.container(border=True):
+            st.write("### 📋 Resumo do Pedido")
+            
+            # Informações do cliente
+            st.write("**👤 Cliente:**")
+            col_cli1, col_cli2 = st.columns(2)
+            with col_cli1:
+                st.write(f"- **Nome:** {cliente['name']}")
+                st.write(f"- **Documento:** {cliente.get('document', 'N/A')}")
+            with col_cli2:
+                st.write(f"- **Endereço:** {cliente.get('address', 'N/A')}")
+                st.write(f"- **Telefone:** {cliente.get('phone', 'N/A')}")
+            
+            st.divider()
+            
+            # Itens do pedido
+            st.write("**🛒 Itens do Pedido:**")
+            total_geral = 0
+            
+            for i, item in enumerate(st.session_state.pedido_itens_calculados):
+                with st.container():
+                    col_res1, col_res2, col_res3 = st.columns([3, 1, 2])
+                    
+                    with col_res1:
+                        st.write(f"**{item['nome']}**")
+                        if item['detalhes']['usa_dtf']:
+                            st.write(f"Área: {item['detalhes']['area_total']:.2f} cm²")
+                    
+                    with col_res2:
+                        st.write(f"Qtd: {item['quantidade']}")
+                        st.write(f"Unit: {formatar_moeda(item['preco_unitario'])}")
+                    
+                    with col_res3:
+                        item_total = item['preco_total']
+                        st.write(f"**Total:** {formatar_moeda(item_total)}")
+                        total_geral += item_total
+            
+            st.divider()
+            
+            # Configurações do pedido
+            st.write("**⚙️ Configurações:**")
+            col_conf1, col_conf2 = st.columns(2)
+            with col_conf1:
+                st.write(f"- **Tipo de Entrega:** {st.session_state.pedido_info['tipo_entrega']}")
+                st.write(f"- **Prazo de Entrega:** {st.session_state.pedido_info['prazo_entrega']}")
+            with col_conf2:
+                st.write(f"- **Forma de Pagamento:** {st.session_state.pedido_info['forma_pagamento']}")
+                if st.session_state.pedido_info['observacoes']:
+                    st.write(f"- **Observações:** {st.session_state.pedido_info['observacoes']}")
+            
+            st.divider()
+            
+            # Total final
+            st.metric("💰 **TOTAL DO PEDIDO**", formatar_moeda(total_geral))
+        
+        # BOTÕES FINAIS
+        st.divider()
+        col_final1, col_final2, col_final3 = st.columns(3)
+        
+        with col_final1:
+            if st.button("← Voltar", type="secondary", use_container_width=True):
+                st.session_state.pedido_etapa = 2
+                st.rerun()
+        
+        with col_final2:
+            if st.button("💾 Salvar Pedido", type="secondary", use_container_width=True):
+                # Salvar pedido como rascunho (igual à etapa 2)
+                db = SessionLocal()
+                try:
+                    current_user = get_current_user()
+                    user = db.query(User).filter(User.id == current_user['id']).first()
+                    
+                    customer = db.query(Customer).filter(Customer.id == cliente['id']).first()
+                    
+                    ultimo_numero = db.query(Order).count() + 1
+                    
+                    itens_para_salvar = []
+                    for item in st.session_state.pedido_itens_calculados:
                         itens_para_salvar.append({
                             "nome": item['nome'],
                             "quantidade": item['quantidade'],
-                            "valor_unitario": item['valor_unitario']
+                            "valor_unitario": item['preco_unitario']
                         })
-                
-                novo_pedido = Order(
-                    order_number=str(ultimo_numero).zfill(4),
-                    customer=customer,
-                    user=user,
-                    total_amount=total,
-                    items=json.dumps(itens_para_salvar),
-                    delivery_type=tipo_entrega,
-                    delivery_deadline=prazo_entrega,
-                    payment_method=forma_pagamento if forma_pagamento != "Não Definido" else "",
-                    payment_status='pending',
-                    delivery_status='production',
-                    notes=observacoes.strip()
-                )
-                
-                db.add(novo_pedido)
-                db.commit()
-                
-                st.success(f"✅ Pedido #{ultimo_numero} salvo com sucesso!")
-                
-                # Limpar dados temporários
-                if 'selected_products' in st.session_state:
-                    st.session_state.selected_products = []
-                if 'manual_items' in st.session_state:
-                    st.session_state.manual_items = []
-                if 'novo_pedido_cliente' in st.session_state:
-                    del st.session_state.novo_pedido_cliente
-                
-                # Gerar nota fiscal se solicitado
-                if save_pdf_clicked:
-                    pdf_path = gerar_nota_fiscal(novo_pedido.to_dict(), cliente_atual)
+                    
+                    novo_pedido = Order(
+                        order_number=str(ultimo_numero).zfill(4),
+                        customer=customer,
+                        user=user,
+                        total_amount=total_geral,
+                        items=json.dumps(itens_para_salvar),
+                        delivery_type=st.session_state.pedido_info['tipo_entrega'],
+                        delivery_deadline=st.session_state.pedido_info['prazo_entrega'],
+                        payment_method=st.session_state.pedido_info['forma_pagamento'] if st.session_state.pedido_info['forma_pagamento'] != "Não Definido" else "",
+                        payment_status='pending',
+                        delivery_status='production',
+                        notes=st.session_state.pedido_info['observacoes'].strip()
+                    )
+                    
+                    db.add(novo_pedido)
+                    db.commit()
+                    
+                    st.success(f"✅ Pedido #{ultimo_numero} salvo como rascunho!")
+                    
+                    # Limpar e voltar à lista
+                    st.session_state.current_page = "pedidos"
+                    st.rerun()
+                    
+                except Exception as e:
+                    db.rollback()
+                    st.error(f"Erro ao salvar pedido: {str(e)}")
+                finally:
+                    db.close()
+        
+        with col_final3:
+            if st.button("✅ Finalizar Pedido", type="primary", use_container_width=True):
+                # Salvar pedido como finalizado
+                db = SessionLocal()
+                try:
+                    current_user = get_current_user()
+                    user = db.query(User).filter(User.id == current_user['id']).first()
+                    
+                    customer = db.query(Customer).filter(Customer.id == cliente['id']).first()
+                    
+                    ultimo_numero = db.query(Order).count() + 1
+                    
+                    itens_para_salvar = []
+                    for item in st.session_state.pedido_itens_calculados:
+                        itens_para_salvar.append({
+                            "nome": item['nome'],
+                            "quantidade": item['quantidade'],
+                            "valor_unitario": item['preco_unitario']
+                        })
+                    
+                    novo_pedido = Order(
+                        order_number=str(ultimo_numero).zfill(4),
+                        customer=customer,
+                        user=user,
+                        total_amount=total_geral,
+                        items=json.dumps(itens_para_salvar),
+                        delivery_type=st.session_state.pedido_info['tipo_entrega'],
+                        delivery_deadline=st.session_state.pedido_info['prazo_entrega'],
+                        payment_method=st.session_state.pedido_info['forma_pagamento'] if st.session_state.pedido_info['forma_pagamento'] != "Não Definido" else "",
+                        payment_status='pending',  # Inicia como pendente
+                        delivery_status='production',
+                        notes=st.session_state.pedido_info['observacoes'].strip()
+                    )
+                    
+                    db.add(novo_pedido)
+                    db.commit()
+                    
+                    st.success(f"✅ Pedido #{ultimo_numero} finalizado com sucesso!")
+                    
+                    # Gerar nota fiscal
+                    pdf_path = gerar_nota_fiscal(novo_pedido.to_dict(), cliente)
                     if pdf_path:
                         with open(pdf_path, "rb") as f:
                             pdf_bytes = f.read()
@@ -2202,18 +2543,35 @@ def mostrar_novo_pedido():
                             mime="application/pdf",
                             type="primary"
                         )
-                
-                # Opção para ir para a lista de pedidos
-                if st.button("Ver Lista de Pedidos"):
-                    st.session_state.current_page = "pedidos"
-                    st.rerun()
                     
-            except Exception as e:
-                db.rollback()
-                st.error(f"Erro ao salvar pedido: {str(e)}")
-            finally:
-                db.close()
+                    # Limpar todos os dados
+                    st.session_state.pedido_etapa = 1
+                    st.session_state.pedido_cliente_selecionado = None
+                    st.session_state.pedido_itens_calculados = []
+                    st.session_state.pedido_info = {
+                        'tipo_entrega': 'Pronta Entrega',
+                        'prazo_entrega': '5 dias úteis',
+                        'forma_pagamento': 'Não Definido',
+                        'observacoes': ''
+                    }
+                    if 'calculo_atual' in st.session_state:
+                        del st.session_state.calculo_atual
+                    if 'novo_pedido_cliente' in st.session_state:
+                        del st.session_state.novo_pedido_cliente
+                    
+                    # Opção para continuar
+                    if st.button("Ir para Lista de Pedidos"):
+                        st.session_state.current_page = "pedidos"
+                        st.rerun()
+                    
+                except Exception as e:
+                    db.rollback()
+                    st.error(f"Erro ao finalizar pedido: {str(e)}")
+                finally:
+                    db.close()
+
 # --- TELA: VER PEDIDO ---
+
 @require_auth()
 def mostrar_ver_pedido():
     if 'view_pedido' not in st.session_state:
