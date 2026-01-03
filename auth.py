@@ -5,7 +5,18 @@ import jwt
 from sqlalchemy.orm import Session
 from models import User, SessionLocal
 from utils.security import verify_password, hash_password
-from config import config
+
+# Configurações JWT - fallback se config.py não existir
+try:
+    from config import config
+    JWT_SECRET_KEY = config.JWT_SECRET_KEY
+    JWT_ALGORITHM = config.JWT_ALGORITHM
+    JWT_EXPIRATION_HOURS = config.JWT_EXPIRATION_HOURS
+except (ImportError, AttributeError):
+    # Valores padrão para desenvolvimento
+    JWT_SECRET_KEY = "dev_secret_key_change_in_production"
+    JWT_ALGORITHM = "HS256"
+    JWT_EXPIRATION_HOURS = 24
 
 class AuthSystem:
     def __init__(self):
@@ -22,13 +33,18 @@ class AuthSystem:
             if existing_user:
                 return False, "Usuário ou email já cadastrado"
             
+            # Validar senha
+            if len(password) < 6:
+                return False, "A senha deve ter pelo menos 6 caracteres"
+            
             # Criar novo usuário
             new_user = User(
                 username=username,
                 email=email,
                 password_hash=hash_password(password),
                 full_name=full_name,
-                is_active=True
+                is_active=True,
+                is_admin=False  # Primeiro usuário não é admin por padrão
             )
             
             self.session.add(new_user)
@@ -63,7 +79,7 @@ class AuthSystem:
     
     def create_jwt_token(self, user_id: int) -> str:
         """Cria um token JWT para o usuário"""
-        expiration = datetime.utcnow() + timedelta(hours=config.JWT_EXPIRATION_HOURS)
+        expiration = datetime.utcnow() + timedelta(hours=JWT_EXPIRATION_HOURS)
         
         payload = {
             'user_id': user_id,
@@ -71,25 +87,21 @@ class AuthSystem:
             'iat': datetime.utcnow()
         }
         
-        token = jwt.encode(payload, config.JWT_SECRET_KEY, algorithm=config.JWT_ALGORITHM)
+        token = jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
         return token
     
     def verify_jwt_token(self, token: str) -> Optional[int]:
         """Verifica um token JWT e retorna o user_id"""
         try:
-            payload = jwt.decode(token, config.JWT_SECRET_KEY, algorithms=[config.JWT_ALGORITHM])
+            payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
             return payload.get('user_id')
         except jwt.ExpiredSignatureError:
             return None
         except jwt.InvalidTokenError:
             return None
     
-    def get_current_user(self, token: str) -> Optional[User]:
-        """Retorna o usuário atual baseado no token"""
-        user_id = self.verify_jwt_token(token)
-        if not user_id:
-            return None
-        
+    def get_user_by_id(self, user_id: int) -> Optional[User]:
+        """Retorna o usuário pelo ID"""
         return self.session.query(User).filter(User.id == user_id, User.is_active == True).first()
     
     def update_user_password(self, user_id: int, current_password: str, new_password: str) -> tuple[bool, str]:
@@ -101,6 +113,9 @@ class AuthSystem:
             
             if not verify_password(current_password, user.password_hash):
                 return False, "Senha atual incorreta"
+            
+            if len(new_password) < 6:
+                return False, "A nova senha deve ter pelo menos 6 caracteres"
             
             user.password_hash = hash_password(new_password)
             self.session.commit()
@@ -138,13 +153,13 @@ def show_login_register_page():
             if submit:
                 if username and password:
                     success, user, token = auth_system.login_user(username, password)
-                    if success:
+                    if success and user:
                         st.session_state.auth_token = token
                         st.session_state.current_user = user.to_dict()
                         st.success("Login realizado com sucesso!")
                         st.rerun()
                     else:
-                        st.error(f"Falha no login: {user if user else token}")
+                        st.error(f"Falha no login: {token if not success else 'Erro desconhecido'}")
                 else:
                     st.warning("Preencha todos os campos")
     
@@ -174,7 +189,7 @@ def show_login_register_page():
                         st.success(message)
                         # Auto-login após registro
                         success, user, token = auth_system.login_user(username, password)
-                        if success:
+                        if success and user:
                             st.session_state.auth_token = token
                             st.session_state.current_user = user.to_dict()
                             st.rerun()
@@ -187,6 +202,7 @@ def require_auth():
         def wrapper(*args, **kwargs):
             if 'auth_token' not in st.session_state or 'current_user' not in st.session_state:
                 show_login_register_page()
+                st.stop()
                 return
             
             # Verificar se o token ainda é válido
@@ -196,15 +212,23 @@ def require_auth():
                 auth_system.logout_user()
                 st.rerun()
             
+            # Atualizar dados do usuário
+            user = auth_system.get_user_by_id(user_id)
+            if not user:
+                st.error("Usuário não encontrado")
+                auth_system.logout_user()
+                st.rerun()
+            
+            st.session_state.current_user = user.to_dict()
             return func(*args, **kwargs)
         return wrapper
     return decorator
 
 def get_current_user():
     """Retorna o usuário atual"""
-    return st.session_state.get('current_user')
+    return st.session_state.get('current_user', {})
 
 def is_admin():
     """Verifica se o usuário atual é admin"""
     user = get_current_user()
-    return user and user.get('is_admin', False)
+    return user.get('is_admin', False)
