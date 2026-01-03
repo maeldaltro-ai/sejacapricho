@@ -9,10 +9,10 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 
-# Importações do nosso sistema
+# --- IMPORTAÇÕES CORRIGIDAS ---
 from auth import require_auth, get_current_user, show_login_register_page, auth_system, is_admin
 from models import init_db, get_db, SessionLocal, User, Product, Customer, Supplier, Order, Budget, SystemConfig
-from utils.security import hash_password, verify_password, validate_email, validate_password_strength
+from security import hash_password, verify_password, validate_email, validate_password_strength
 from config import config
 
 # Inicializar banco de dados
