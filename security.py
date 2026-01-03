@@ -3,11 +3,22 @@ import re
 from datetime import datetime, timedelta
 from typing import Optional
 import jwt
-from config import config
+
+# Configurações - fallback se config.py não existir
+try:
+    from config import config
+    JWT_SECRET_KEY = config.JWT_SECRET_KEY
+    JWT_ALGORITHM = config.JWT_ALGORITHM
+    PASSWORD_HASH_ROUNDS = getattr(config, 'PASSWORD_HASH_ROUNDS', 12)
+except (ImportError, AttributeError):
+    # Valores padrão para desenvolvimento
+    JWT_SECRET_KEY = "dev_secret_key_change_in_production"
+    JWT_ALGORITHM = "HS256"
+    PASSWORD_HASH_ROUNDS = 12
 
 def hash_password(password: str) -> str:
     """Gera hash da senha usando bcrypt"""
-    salt = bcrypt.gensalt(rounds=config.PASSWORD_HASH_ROUNDS)
+    salt = bcrypt.gensalt(rounds=PASSWORD_HASH_ROUNDS)
     hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
     return hashed.decode('utf-8')
 
@@ -39,13 +50,13 @@ def generate_reset_token(email: str, expires_in: int = 3600) -> str:
         'type': 'password_reset'
     }
     
-    token = jwt.encode(payload, config.JWT_SECRET_KEY, algorithm=config.JWT_ALGORITHM)
+    token = jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
     return token
 
 def verify_reset_token(token: str) -> Optional[str]:
     """Verifica token de reset de senha"""
     try:
-        payload = jwt.decode(token, config.JWT_SECRET_KEY, algorithms=[config.JWT_ALGORITHM])
+        payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
         if payload.get('type') != 'password_reset':
             return None
         return payload.get('email')
