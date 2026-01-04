@@ -1,25 +1,33 @@
 import os
+from urllib.parse import urlparse
 
 class SystemConfig:
     # Configuração do banco de dados
-    # Primeiro, tenta usar a DATABASE_URL do Railway (ambiente de produção)
-    _database_url = os.getenv("DATABASE_URL")
+    # Usar variável de ambiente DATABASE_URL fornecida pelo Railway
+    DATABASE_URL = os.getenv("DATABASE_URL")
     
-    if _database_url:
-        # O Railway fornece a URL como postgres://, mas o SQLAlchemy exige postgresql://
-        if _database_url.startswith("postgres://"):
-            SQLALCHEMY_DATABASE_URI = _database_url.replace("postgres://", "postgresql://", 1)
-            print(f"🔧 URL convertida (postgres -> postgresql)")
+    if DATABASE_URL:
+        # Converter URL do formato postgres:// para postgresql://
+        if DATABASE_URL.startswith("postgres://"):
+            SQLALCHEMY_DATABASE_URI = DATABASE_URL.replace("postgres://", "postgresql+psycopg2://", 1)
         else:
-            SQLALCHEMY_DATABASE_URI = _database_url
-            print(f"🔧 URL já está em formato postgresql")
+            SQLALCHEMY_DATABASE_URI = DATABASE_URL
+        
+        # Verificar se precisa adicionar driver psycopg2
+        if "postgresql://" in SQLALCHEMY_DATABASE_URI and "psycopg2" not in SQLALCHEMY_DATABASE_URI:
+            SQLALCHEMY_DATABASE_URI = SQLALCHEMY_DATABASE_URI.replace("postgresql://", "postgresql+psycopg2://")
+        
+        print(f"🔧 Usando PostgreSQL do Railway")
     else:
         # Fallback para desenvolvimento local
         SQLALCHEMY_DATABASE_URI = "sqlite:///./dtf_pricing.db"
         print(f"🔧 Usando SQLite local (nenhum DATABASE_URL encontrado)")
     
-    # DEBUG: Mostrar URL final
-    print(f"🔧 SQLALCHEMY_DATABASE_URI final: {SQLALCHEMY_DATABASE_URI[:50]}...")
+    # DEBUG: Mostrar URL final (ocultando credenciais)
+    if SQLALCHEMY_DATABASE_URI:
+        parsed = urlparse(SQLALCHEMY_DATABASE_URI)
+        safe_url = f"{parsed.scheme}://{parsed.hostname}:{parsed.port}{parsed.path}"
+        print(f"🔧 Conectando ao banco: {safe_url}")
     
     # Chave para o sistema de Login (JWT)
     JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "dtf-pricing-secret-key-2024-!@#$%^&*()_+")
@@ -28,7 +36,3 @@ class SystemConfig:
     PASSWORD_HASH_ROUNDS = 12
 
 config = SystemConfig()
-
-# Para debug: mostrar qual banco está sendo usado (apenas em desenvolvimento)
-if os.getenv("ENVIRONMENT") != "production":
-    print(f"🔧 Configuração do banco: {config.SQLALCHEMY_DATABASE_URI[:50]}...")
