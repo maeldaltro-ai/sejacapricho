@@ -6,6 +6,13 @@ import tempfile
 import sys
 import os
 
+st.set_page_config(
+    page_title="Seja Capricho - Sistema",
+    page_icon="👕",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
 # Adicionar diretório atual ao path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
