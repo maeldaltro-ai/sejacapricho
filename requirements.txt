@@ -1,5 +1,5 @@
 streamlit==1.32.0
-pandas==2.2.1
+pandas==1.5.3  # ↓↓ Versão MAIS ANTIGA mas com wheels disponíveis
 SQLAlchemy==2.0.25
 bcrypt==4.1.2
 PyJWT==2.8.0
@@ -9,3 +9,4 @@ python-dotenv==1.0.0
 Pillow==10.2.0
 psycopg2-binary==2.9.9
 alembic==1.13.1
+numpy==1.24.3  # ↓↓ Versão COMPATÍVEL com pandas 1.5.3
