@@ -1,19 +1,15 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
-import json
-import tempfile
 import sys
 import os
 
 st.set_page_config(
     page_title="Seja Capricho - Sistema",
     page_icon="👕",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    layout="wide"
 )
 
-# Adicionar diretório atual ao path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 # --- IMPORTAÇÕES REPORTLAB (com tratamento de erros) ---
@@ -73,19 +69,19 @@ except ImportError as e:
 # --- IMPORTAÇÕES PRINCIPAIS ---
 try:
     from auth import require_auth, get_current_user, show_login_register_page, auth_system, is_admin
-    from models import init_db, get_db, SessionLocal, User, Product, Customer, Supplier, Order, Budget, SystemConfig
-    from security import hash_password, verify_password, validate_email, validate_password_strength
+    from models import init_db, SessionLocal, User # Remova get_db se não usar
     from config import config
     
-    # Inicializar banco de dados
-    init_db()
-    print("✅ Banco de dados inicializado com sucesso!")
-    
+    # Inicialização única segura
+    if 'db_initialized' not in st.session_state:
+        init_db()
+        st.session_state.db_initialized = True
+        
 except Exception as e:
-    st.error(f"❌ Erro ao inicializar o sistema: {e}")
-    print(f"❌ Erro detalhado: {e}")
+    st.error(f"❌ Erro de herança/inicialização: {e}")
+    st.info("Dica: Verifique se o SQLAlchemy no requirements.txt é o 1.4.52")
     st.stop()
-
+    
 # --- CONSTANTES E CORES ---
 COR_ROXA = "#9370DB"
 COR_AZUL_ARDOSIA = "#836FFF"
