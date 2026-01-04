@@ -1,78 +1,99 @@
 import bcrypt
+import jwt
 import re
 from datetime import datetime, timedelta
-from typing import Optional
-import jwt
+import sys
+import os
 
-# Configurações - fallback se config.py não existir
+# Adicionar diretório atual ao path
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
 try:
     from config import config
     JWT_SECRET_KEY = config.JWT_SECRET_KEY
     JWT_ALGORITHM = config.JWT_ALGORITHM
-    PASSWORD_HASH_ROUNDS = getattr(config, 'PASSWORD_HASH_ROUNDS', 12)
 except (ImportError, AttributeError):
     # Valores padrão para desenvolvimento
-    JWT_SECRET_KEY = "dev_secret_key_change_in_production"
+    JWT_SECRET_KEY = "dtf-pricing-secret-key-2024-!@#$%^&*()_+"
     JWT_ALGORITHM = "HS256"
-    PASSWORD_HASH_ROUNDS = 12
 
 def hash_password(password: str) -> str:
-    """Gera hash da senha usando bcrypt"""
-    salt = bcrypt.gensalt(rounds=PASSWORD_HASH_ROUNDS)
-    hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
-    return hashed.decode('utf-8')
+    """Gera um hash seguro para a senha"""
+    try:
+        # Usar bcrypt para gerar hash
+        salt = bcrypt.gensalt(rounds=12)
+        hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
+        return hashed.decode('utf-8')
+    except Exception as e:
+        print(f"❌ Erro ao gerar hash da senha: {e}")
+        # Fallback simples (NÃO usar em produção real)
+        import hashlib
+        return hashlib.sha256(password.encode('utf-8')).hexdigest()
 
 def verify_password(password: str, hashed_password: str) -> bool:
     """Verifica se a senha corresponde ao hash"""
-    return bcrypt.checkpw(password.encode('utf-8'), hashed_password.encode('utf-8'))
+    try:
+        if not password or not hashed_password:
+            return False
+        
+        # Verificar se o hash é bcrypt
+        if hashed_password.startswith("$2b$") or hashed_password.startswith("$2a$") or hashed_password.startswith("$2y$"):
+            return bcrypt.checkpw(password.encode('utf-8'), hashed_password.encode('utf-8'))
+        else:
+            # Fallback para hash SHA256 (para compatibilidade com senhas antigas)
+            import hashlib
+            return hashlib.sha256(password.encode('utf-8')).hexdigest() == hashed_password
+    except Exception as e:
+        print(f"❌ Erro ao verificar senha: {e}")
+        return False
 
 def validate_email(email: str) -> bool:
-    """Valida formato de email"""
+    """Valida o formato do email"""
+    if not email:
+        return False
+    
     pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-    return re.match(pattern, email) is not None
+    return re.match(pattern, email.strip()) is not None
 
 def validate_password_strength(password: str) -> tuple[bool, str]:
-    """Valida força da senha"""
+    """Valida a força da senha"""
     if len(password) < 6:
         return False, "A senha deve ter pelo menos 6 caracteres"
     
-    # Pode adicionar mais validações aqui
+    # Pode adicionar mais regras aqui se necessário
     return True, "Senha válida"
 
-def generate_reset_token(email: str, expires_in: int = 3600) -> str:
-    """Gera token para reset de senha"""
-    expiration = datetime.utcnow() + timedelta(seconds=expires_in)
-    
-    payload = {
-        'email': email,
-        'exp': expiration,
-        'iat': datetime.utcnow(),
-        'type': 'password_reset'
-    }
-    
-    token = jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
-    return token
-
-def verify_reset_token(token: str) -> Optional[str]:
-    """Verifica token de reset de senha"""
+def create_jwt_token(user_id: int, expiration_hours: int = 24) -> str:
+    """Cria um token JWT para o usuário"""
     try:
-        payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
-        if payload.get('type') != 'password_reset':
-            return None
-        return payload.get('email')
-    except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
-        return None
+        expiration = datetime.utcnow() + timedelta(hours=expiration_hours)
+        
+        payload = {
+            'user_id': user_id,
+            'exp': expiration,
+            'iat': datetime.utcnow()
+        }
+        
+        token = jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+        return token
+    except Exception as e:
+        print(f"❌ Erro ao criar token JWT: {e}")
+        return ""
 
-def sanitize_input(text: str) -> str:
-    """Remove caracteres perigosos de inputs"""
-    if not text:
-        return text
-    
-    # Remove tags HTML/JavaScript
-    import html
-    text = html.escape(text)
-    
-    # Remove caracteres de controle
-    text = ''.join(char for char in text if ord(char) >= 32)
-    
-    return text.strip()
+def verify_jwt_token(token: str):
+    """Verifica e decodifica um token JWT"""
+    try:
+        if not token:
+            return None
+            
+        payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+        return payload
+    except jwt.ExpiredSignatureError:
+        print("❌ Token JWT expirado")
+        return None
+    except jwt.InvalidTokenError as e:
+        print(f"❌ Token JWT inválido: {e}")
+        return None
+    except Exception as e:
+        print(f"❌ Erro ao verificar token JWT: {e}")
+        return None
