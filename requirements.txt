@@ -1,12 +1,13 @@
+# 🚀 VERSÕES COMPATÍVEIS COM PYTHON 3.10
 streamlit==1.32.0
-pandas==1.5.3  # ↓↓ Versão MAIS ANTIGA mas com wheels disponíveis
+pandas==1.5.3
+numpy==1.24.3
 SQLAlchemy==2.0.25
 bcrypt==4.1.2
 PyJWT==2.8.0
 cryptography==41.0.7
 reportlab==4.0.4
 python-dotenv==1.0.0
-Pillow==10.2.0
+Pillow==9.5.0  # ← VERSÃO MAIS ESTÁVEL COM WHEELS PARA PYTHON 3.10
 psycopg2-binary==2.9.9
 alembic==1.13.1
-numpy==1.24.3  # ↓↓ Versão COMPATÍVEL com pandas 1.5.3
