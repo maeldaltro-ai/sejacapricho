@@ -22,7 +22,28 @@ try:
     from models import init_db, get_db, SessionLocal, User, Product, Customer, Supplier, Order, Budget, SystemConfig
     from security import hash_password, verify_password, validate_email, validate_password_strength
     from config import config
-    
+try:
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    from reportlab.lib.units import inch
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+    from reportlab.pdfgen import canvas
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+except ImportError as e:
+    print(f"⚠️ ReportLab não disponível: {e}")
+    # Definir placeholders para evitar erros
+    class SimpleDocTemplate:
+        pass
+    class Paragraph:
+        pass
+    class Spacer:
+        pass
+    class Table:
+        pass
+        
     # Inicializar banco de dados
     init_db()
     print("✅ Banco de dados inicializado com sucesso!")
