@@ -1,17 +1,23 @@
 from sqlalchemy import create_engine, Column, Integer, String, Float, Boolean, Text, DateTime, JSON
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
 import json
+import sys
+import os
+
+# Adicionar o diretório atual ao path para importar config
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from config import config
 
 # Configurar engine do banco de dados
 engine = create_engine(
     config.SQLALCHEMY_DATABASE_URI,
-    echo=False,  # Setar True para ver queries SQL no console (apenas dev)
-    pool_pre_ping=True,  # Verificar conexão antes de usar
-    pool_recycle=3600,  # Reciclar conexões a cada hora
+    echo=False,
+    pool_pre_ping=True,
+    pool_recycle=3600,
+    connect_args={"connect_timeout": 10}  # Adicionar timeout
 )
 
 Base = declarative_base()
@@ -28,6 +34,12 @@ class User(Base):
     is_admin = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    
+    # Relacionamentos
+    customers = relationship("Customer", backref="user_ref")
+    suppliers = relationship("Supplier", backref="user_ref")
+    orders = relationship("Order", backref="user_ref")
+    budgets = relationship("Budget", backref="user_ref")
     
     def to_dict(self):
         return {
@@ -83,6 +95,9 @@ class Customer(Base):
     notes = Column(Text)
     created_at = Column(DateTime, default=datetime.now)
     user_id = Column(Integer)
+    
+    # Relacionamentos
+    orders = relationship("Order", backref="customer_ref")
     
     def to_dict(self):
         return {
@@ -159,7 +174,7 @@ class Order(Base):
             'customer_id': self.customer_id,
             'user_id': self.user_id,
             'total_amount': self.total_amount,
-            'items': self.items,
+            'items': self.items if isinstance(self.items, (list, dict)) else json.loads(self.items) if self.items else [],
             'delivery_type': self.delivery_type,
             'delivery_deadline': self.delivery_deadline,
             'payment_method': self.payment_method,
@@ -197,7 +212,7 @@ class Budget(Base):
             'sale_type': self.sale_type,
             'production_deadline': self.production_deadline,
             'total_amount': self.total_amount,
-            'items': self.items,
+            'items': self.items if isinstance(self.items, (list, dict)) else json.loads(self.items) if self.items else [],
             'notes': self.notes,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'user_id': self.user_id
@@ -215,13 +230,16 @@ class SystemConfig(Base):
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
     
     def get_value(self):
+        if not self.value:
+            return None
+            
         if self.value_type == 'number':
             try:
                 return float(self.value)
             except:
                 return 0.0
         elif self.value_type == 'boolean':
-            return self.value.lower() in ['true', '1', 'yes']
+            return self.value.lower() in ['true', '1', 'yes', 'on']
         else:
             return self.value
     
@@ -241,7 +259,12 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def init_db():
     """Inicializa o banco de dados, criando todas as tabelas se não existirem"""
-    Base.metadata.create_all(bind=engine)
+    try:
+        Base.metadata.create_all(bind=engine)
+        print("✅ Tabelas criadas com sucesso!")
+    except Exception as e:
+        print(f"❌ Erro ao criar tabelas: {e}")
+        return
     
     # Inserir configurações padrão se não existirem
     db = SessionLocal()
@@ -292,7 +315,7 @@ def init_db():
         
     except Exception as e:
         db.rollback()
-        print(f"❌ Erro ao inicializar banco: {e}")
+        print(f"❌ Erro ao inicializar dados: {e}")
     finally:
         db.close()
 
