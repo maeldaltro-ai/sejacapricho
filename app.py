@@ -16,12 +16,7 @@ st.set_page_config(
 # Adicionar diretório atual ao path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-# --- IMPORTAÇÕES ---
-try:
-    from auth import require_auth, get_current_user, show_login_register_page, auth_system, is_admin
-    from models import init_db, get_db, SessionLocal, User, Product, Customer, Supplier, Order, Budget, SystemConfig
-    from security import hash_password, verify_password, validate_email, validate_password_strength
-    from config import config
+# --- IMPORTAÇÕES REPORTLAB (com tratamento de erros) ---
 try:
     from reportlab.lib.pagesizes import A4
     from reportlab.lib import colors
@@ -32,8 +27,10 @@ try:
     from reportlab.pdfgen import canvas
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
+    REPORTLAB_AVAILABLE = True
 except ImportError as e:
     print(f"⚠️ ReportLab não disponível: {e}")
+    REPORTLAB_AVAILABLE = False
     # Definir placeholders para evitar erros
     class SimpleDocTemplate:
         pass
@@ -43,7 +40,43 @@ except ImportError as e:
         pass
     class Table:
         pass
-        
+    class TableStyle:
+        pass
+    class colors:
+        class HexColor:
+            def __init__(self, color):
+                pass
+        white = None
+        black = None
+        gray = None
+        class colors:
+            pass
+    class getSampleStyleSheet:
+        def __init__(self):
+            self.Normal = type('Normal', (), {})
+            self.Heading1 = type('Heading1', (), {})
+    class ParagraphStyle:
+        def __init__(self, name, parent, **kwargs):
+            pass
+    class TA_CENTER:
+        pass
+    class TA_LEFT:
+        pass
+    class TA_RIGHT:
+        pass
+    A4 = (595.2755905511812, 841.8897637795277)
+    colors.HexColor = lambda x: None
+    colors.white = "#FFFFFF"
+    colors.black = "#000000"
+    colors.gray = "#808080"
+
+# --- IMPORTAÇÕES PRINCIPAIS ---
+try:
+    from auth import require_auth, get_current_user, show_login_register_page, auth_system, is_admin
+    from models import init_db, get_db, SessionLocal, User, Product, Customer, Supplier, Order, Budget, SystemConfig
+    from security import hash_password, verify_password, validate_email, validate_password_strength
+    from config import config
+    
     # Inicializar banco de dados
     init_db()
     print("✅ Banco de dados inicializado com sucesso!")
