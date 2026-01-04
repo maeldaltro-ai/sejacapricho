@@ -5,16 +5,21 @@ import jwt
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from models import User, SessionLocal
-from security import verify_password, hash_password, validate_email
+import sys
+import os
 
-# Configurações JWT - fallback se config.py não existir
+# Adicionar o diretório atual ao path
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
 try:
+    from security import verify_password, hash_password, validate_email
     from config import config
     JWT_SECRET_KEY = config.JWT_SECRET_KEY
     JWT_ALGORITHM = config.JWT_ALGORITHM
     JWT_EXPIRATION_HOURS = config.JWT_EXPIRATION_HOURS
-except (ImportError, AttributeError):
+except (ImportError, AttributeError) as e:
     # Valores padrão para desenvolvimento
+    print(f"⚠️ Erro ao importar configurações: {e}")
     JWT_SECRET_KEY = "dev_secret_key_change_in_production"
     JWT_ALGORITHM = "HS256"
     JWT_EXPIRATION_HOURS = 24
@@ -58,7 +63,7 @@ class AuthSystem:
                 password_hash=hash_password(password),
                 full_name=full_name.strip() if full_name else None,
                 is_active=True,
-                is_admin=False  # Primeiro usuário não é admin por padrão
+                is_admin=False
             )
             
             self.session.add(new_user)
@@ -67,16 +72,20 @@ class AuthSystem:
             
         except Exception as e:
             self.session.rollback()
+            print(f"❌ Erro ao registrar usuário: {e}")
             return False, f"Erro ao registrar usuário: {str(e)}"
+        finally:
+            self.session.close()
     
     def login_user(self, username: str, password: str) -> tuple[bool, Optional[User], str]:
         """Autentica um usuário"""
+        session = SessionLocal()
         try:
             # Normalizar entrada
             username_input = username.strip().lower()
             
             # Buscar usuário por username ou email (case-insensitive)
-            user = self.session.query(User).filter(
+            user = session.query(User).filter(
                 or_(
                     User.username.ilike(username_input),
                     User.email.ilike(username_input)
@@ -96,39 +105,57 @@ class AuthSystem:
             return True, user, token
             
         except Exception as e:
+            print(f"❌ Erro ao fazer login: {e}")
             return False, None, f"Erro ao fazer login: {str(e)}"
+        finally:
+            session.close()
     
     def create_jwt_token(self, user_id: int) -> str:
         """Cria um token JWT para o usuário"""
-        expiration = datetime.utcnow() + timedelta(hours=JWT_EXPIRATION_HOURS)
-        
-        payload = {
-            'user_id': user_id,
-            'exp': expiration,
-            'iat': datetime.utcnow()
-        }
-        
-        token = jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
-        return token
+        try:
+            expiration = datetime.utcnow() + timedelta(hours=JWT_EXPIRATION_HOURS)
+            
+            payload = {
+                'user_id': user_id,
+                'exp': expiration,
+                'iat': datetime.utcnow()
+            }
+            
+            token = jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+            return token
+        except Exception as e:
+            print(f"❌ Erro ao criar token JWT: {e}")
+            return ""
     
     def verify_jwt_token(self, token: str) -> Optional[int]:
         """Verifica um token JWT e retorna o user_id"""
         try:
+            if not token:
+                return None
+                
             payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
             return payload.get('user_id')
         except jwt.ExpiredSignatureError:
             return None
         except jwt.InvalidTokenError:
             return None
+        except Exception as e:
+            print(f"❌ Erro ao verificar token: {e}")
+            return None
     
     def get_user_by_id(self, user_id: int) -> Optional[User]:
         """Retorna o usuário pelo ID"""
-        return self.session.query(User).filter(User.id == user_id, User.is_active == True).first()
+        session = SessionLocal()
+        try:
+            return session.query(User).filter(User.id == user_id, User.is_active == True).first()
+        finally:
+            session.close()
     
     def update_user_password(self, user_id: int, current_password: str, new_password: str) -> tuple[bool, str]:
         """Atualiza a senha do usuário"""
+        session = SessionLocal()
         try:
-            user = self.session.query(User).filter(User.id == user_id).first()
+            user = session.query(User).filter(User.id == user_id).first()
             if not user:
                 return False, "Usuário não encontrado"
             
@@ -139,12 +166,15 @@ class AuthSystem:
                 return False, "A nova senha deve ter pelo menos 6 caracteres"
             
             user.password_hash = hash_password(new_password)
-            self.session.commit()
+            session.commit()
             return True, "Senha atualizada com sucesso!"
             
         except Exception as e:
-            self.session.rollback()
+            session.rollback()
+            print(f"❌ Erro ao atualizar senha: {e}")
             return False, f"Erro ao atualizar senha: {str(e)}"
+        finally:
+            session.close()
     
     def logout_user(self):
         """Limpa a sessão do usuário"""
@@ -155,10 +185,11 @@ class AuthSystem:
     
     def get_all_users(self):
         """Retorna todos os usuários (apenas para admin)"""
-        return self.session.query(User).all()
-    
-    def __del__(self):
-        self.session.close()
+        session = SessionLocal()
+        try:
+            return session.query(User).all()
+        finally:
+            session.close()
 
 # Instância global do sistema de autenticação
 auth_system = AuthSystem()
