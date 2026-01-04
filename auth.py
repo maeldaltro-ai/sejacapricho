@@ -26,10 +26,15 @@ except (ImportError, AttributeError) as e:
 
 class AuthSystem:
     def __init__(self):
-        self.session = SessionLocal()
+        # Não instanciar sessão aqui para evitar problemas de thread
+        pass
+    
+    def get_session(self):
+        return SessionLocal()
     
     def register_user(self, username: str, email: str, password: str, full_name: str = None) -> tuple[bool, str]:
         """Registra um novo usuário"""
+        session = self.get_session()
         try:
             # Normalizar dados
             username = username.strip().lower()
@@ -39,7 +44,7 @@ class AuthSystem:
                 return False, "Email inválido"
             
             # Verificar se o usuário já existe
-            existing_user = self.session.query(User).filter(
+            existing_user = session.query(User).filter(
                 or_(
                     User.username.ilike(username),
                     User.email.ilike(email)
@@ -66,25 +71,23 @@ class AuthSystem:
                 is_admin=False
             )
             
-            self.session.add(new_user)
-            self.session.commit()
+            session.add(new_user)
+            session.commit()
             return True, "Usuário registrado com sucesso!"
             
         except Exception as e:
-            self.session.rollback()
+            session.rollback()
             print(f"❌ Erro ao registrar usuário: {e}")
             return False, f"Erro ao registrar usuário: {str(e)}"
         finally:
-            self.session.close()
+            session.close()
     
     def login_user(self, username: str, password: str) -> tuple[bool, Optional[User], str]:
         """Autentica um usuário"""
-        session = SessionLocal()
+        session = self.get_session()
         try:
-            # Normalizar entrada
             username_input = username.strip().lower()
             
-            # Buscar usuário por username ou email (case-insensitive)
             user = session.query(User).filter(
                 or_(
                     User.username.ilike(username_input),
@@ -99,9 +102,7 @@ class AuthSystem:
             if not verify_password(password, user.password_hash):
                 return False, None, "Senha incorreta"
             
-            # Gerar token JWT
             token = self.create_jwt_token(user.id)
-            
             return True, user, token
             
         except Exception as e:
@@ -111,49 +112,36 @@ class AuthSystem:
             session.close()
     
     def create_jwt_token(self, user_id: int) -> str:
-        """Cria um token JWT para o usuário"""
         try:
             expiration = datetime.utcnow() + timedelta(hours=JWT_EXPIRATION_HOURS)
-            
             payload = {
                 'user_id': user_id,
                 'exp': expiration,
                 'iat': datetime.utcnow()
             }
-            
-            token = jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
-            return token
+            return jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
         except Exception as e:
             print(f"❌ Erro ao criar token JWT: {e}")
             return ""
     
     def verify_jwt_token(self, token: str) -> Optional[int]:
-        """Verifica um token JWT e retorna o user_id"""
         try:
             if not token:
                 return None
-                
             payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
             return payload.get('user_id')
-        except jwt.ExpiredSignatureError:
-            return None
-        except jwt.InvalidTokenError:
-            return None
-        except Exception as e:
-            print(f"❌ Erro ao verificar token: {e}")
+        except Exception:
             return None
     
     def get_user_by_id(self, user_id: int) -> Optional[User]:
-        """Retorna o usuário pelo ID"""
-        session = SessionLocal()
+        session = self.get_session()
         try:
             return session.query(User).filter(User.id == user_id, User.is_active == True).first()
         finally:
             session.close()
     
     def update_user_password(self, user_id: int, current_password: str, new_password: str) -> tuple[bool, str]:
-        """Atualiza a senha do usuário"""
-        session = SessionLocal()
+        session = self.get_session()
         try:
             user = session.query(User).filter(User.id == user_id).first()
             if not user:
@@ -171,34 +159,21 @@ class AuthSystem:
             
         except Exception as e:
             session.rollback()
-            print(f"❌ Erro ao atualizar senha: {e}")
             return False, f"Erro ao atualizar senha: {str(e)}"
         finally:
             session.close()
     
     def logout_user(self):
-        """Limpa a sessão do usuário"""
         keys_to_remove = ['auth_token', 'current_user', 'current_page', 'selected_products', 'manual_items']
         for key in keys_to_remove:
             if key in st.session_state:
                 del st.session_state[key]
-    
-    def get_all_users(self):
-        """Retorna todos os usuários (apenas para admin)"""
-        session = SessionLocal()
-        try:
-            return session.query(User).all()
-        finally:
-            session.close()
 
-# Instância global do sistema de autenticação
 auth_system = AuthSystem()
 
 def show_login_register_page():
-    """Mostra a página de login/registro"""
     st.title("🔐 DTF Pricing Calculator - Login")
     
-    # Verificar se já está logado
     if 'auth_token' in st.session_state and 'current_user' in st.session_state:
         st.success("Você já está logado!")
         if st.button("Ir para o Dashboard"):
@@ -210,11 +185,9 @@ def show_login_register_page():
     
     with tab1:
         st.subheader("Login")
-        
-        # Formulário de Login
         with st.form("login_form"):
-            username = st.text_input("Usuário ou Email", value="")
-            password = st.text_input("Senha", type="password", value="")
+            username = st.text_input("Usuário ou Email")
+            password = st.text_input("Senha", type="password")
             submit_login = st.form_submit_button("Entrar")
         
         if submit_login:
@@ -234,8 +207,6 @@ def show_login_register_page():
     
     with tab2:
         st.subheader("Registro")
-        
-        # Formulário de Registro
         with st.form("register_form"):
             col1, col2 = st.columns(2)
             with col1:
@@ -260,7 +231,6 @@ def show_login_register_page():
                     success, message = auth_system.register_user(new_username, new_email, new_password, new_full_name)
                     if success:
                         st.success(message)
-                        # Auto-login após registro
                         success, user, token = auth_system.login_user(new_username, new_password)
                         if success and user:
                             st.session_state.auth_token = token
@@ -271,7 +241,6 @@ def show_login_register_page():
                         st.error(message)
 
 def require_auth():
-    """Decorador para requerer autenticação"""
     def decorator(func):
         def wrapper(*args, **kwargs):
             if 'auth_token' not in st.session_state or 'current_user' not in st.session_state:
@@ -279,48 +248,21 @@ def require_auth():
                 st.stop()
                 return
             
-            # Verificar se o token ainda é válido
             user_id = auth_system.verify_jwt_token(st.session_state.auth_token)
             if not user_id:
                 st.warning("Sessão expirada. Por favor, faça login novamente.")
                 auth_system.logout_user()
                 st.rerun()
             
-            # Atualizar dados do usuário
-            user = auth_system.get_user_by_id(user_id)
-            if not user:
-                st.error("Usuário não encontrado")
-                auth_system.logout_user()
-                st.rerun()
-            
-            st.session_state.current_user = user.to_dict()
+            # Opcional: Recarregar usuário do banco para garantir dados frescos
+            # Mas para performance, podemos confiar na session_state por enquanto
             return func(*args, **kwargs)
         return wrapper
     return decorator
 
 def get_current_user():
-    """Retorna o usuário atual"""
     return st.session_state.get('current_user', {})
 
 def is_admin():
-    """Verifica se o usuário atual é admin"""
     user = get_current_user()
     return user.get('is_admin', False)
-
-# Função para reset de senha (se necessário)
-def show_password_reset():
-    """Mostra página de reset de senha"""
-    st.title("🔐 Recuperar Senha")
-    
-    email = st.text_input("Digite seu email")
-    
-    if st.button("Enviar link de recuperação"):
-        if email:
-            # Implementar lógica de envio de email de recuperação
-            st.info("Funcionalidade de recuperação de senha em desenvolvimento.")
-        else:
-            st.error("Digite seu email")
-    
-    if st.button("Voltar para login"):
-        st.session_state.current_page = "login"
-        st.rerun()
