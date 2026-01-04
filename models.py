@@ -1,26 +1,21 @@
-from sqlalchemy import create_engine, Column, Integer, String, Float, Boolean, Text, DateTime, JSON, ForeignKey, Date, Numeric
-from sqlalchemy.orm import declarative_base, sessionmaker, relationship
+from sqlalchemy import create_engine, Column, Integer, String, Float, Boolean, Text, DateTime, JSON, ForeignKey
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
 import sys
 import os
-import json
 
-# Adicionar o diretório atual ao path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
 from config import config
 
 # Configurar engine do banco de dados
 engine = create_engine(
     config.SQLALCHEMY_DATABASE_URI,
-    echo=False,
     pool_pre_ping=True,
     pool_recycle=3600
 )
 
-# CRIAR A SESSÃO (Correção essencial)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
 Base = declarative_base()
 
 # --- MODELOS ---
@@ -302,8 +297,9 @@ def init_db():
     try:
         print("🔄 Criando tabelas do banco de dados...")
         Base.metadata.create_all(bind=engine)
-        
         db = SessionLocal()
+
+        from sqlalchemy import inspect
         
         # Configurações padrão do sistema
         default_configs = [
@@ -369,3 +365,5 @@ def get_db():
         yield db
     finally:
         db.close()
+except Exception as e:
+        print(f"Erro na inicialização do DB: {e}")
