@@ -11,3 +11,6 @@ Pillow
 psycopg2-binary
 setuptools
 wheel
+typing-extensions==4.9.0
+greenlet==3.0.3
+tzdata==2024.1
