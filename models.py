@@ -1,9 +1,11 @@
-from sqlalchemy import create_engine, Column, Integer, String, Float, Boolean, Text, DateTime, JSON, ForeignKey
+from sqlalchemy import create_engine, Column, Integer, String, Float, Boolean, Text, DateTime, JSON, ForeignKey, Date
 from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.types import Numeric
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
 import sys
 import os
+import json
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from config import config
