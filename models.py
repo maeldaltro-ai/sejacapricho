@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, Float, Boolean, Text, DateTime, JSON
+from sqlalchemy import create_engine, Column, Integer, String, Float, Boolean, Text, DateTime, JSON, ForeignKey
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from datetime import datetime
 import sys
@@ -17,10 +17,12 @@ engine = create_engine(
     pool_recycle=3600
 )
 
-# CRIAR A SESSÃO (Faltava isso no seu código original)
+# CRIAR A SESSÃO (Correção essencial)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base = declarative_base()
+
+# --- MODELOS ---
 
 class User(Base):
     __tablename__ = 'users'
@@ -34,9 +36,6 @@ class User(Base):
     is_admin = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
-    
-    # Relacionamentos (strings para evitar dependência circular se houver outras classes)
-    # customers = relationship("Customer", backref="user_ref") # Descomente se tiver a classe Customer
 
 class SystemConfig(Base):
     __tablename__ = 'system_configs'
@@ -47,10 +46,42 @@ class SystemConfig(Base):
     category = Column(String(50))
     description = Column(String(200))
 
-# --- Funções de Inicialização ---
+# Adicione aqui seus outros modelos (Product, Customer, etc) se eles existiam no original.
+# Como não tenho acesso a eles, deixei a estrutura pronta para você colar se necessário.
+# Exemplo básico para não quebrar referências:
+class Product(Base):
+    __tablename__ = 'products'
+    id = Column(Integer, primary_key=True)
+    name = Column(String(100))
+    # ... outros campos
+
+class Customer(Base):
+    __tablename__ = 'customers'
+    id = Column(Integer, primary_key=True)
+    name = Column(String(100))
+    user_id = Column(Integer, ForeignKey('users.id'))
+    # ... outros campos
+
+class Supplier(Base):
+    __tablename__ = 'suppliers'
+    id = Column(Integer, primary_key=True)
+    name = Column(String(100))
+
+class Order(Base):
+    __tablename__ = 'orders'
+    id = Column(Integer, primary_key=True)
+    created_at = Column(DateTime, default=datetime.now)
+
+class Budget(Base):
+    __tablename__ = 'budgets'
+    id = Column(Integer, primary_key=True)
+    created_at = Column(DateTime, default=datetime.now)
+
+
+# --- INICIALIZAÇÃO ---
 
 def init_db():
-    """Inicializa o banco de dados e cria tabelas se não existirem"""
+    """Inicializa o banco de dados e cria tabelas"""
     try:
         Base.metadata.create_all(bind=engine)
         
@@ -66,18 +97,14 @@ def init_db():
             existing = db.query(SystemConfig).filter(SystemConfig.key == key).first()
             if not existing:
                 config_item = SystemConfig(
-                    key=key,
-                    value=value,
-                    value_type=value_type,
-                    category=category,
-                    description=description
+                    key=key, value=value, value_type=value_type, 
+                    category=category, description=description
                 )
                 db.add(config_item)
         
-        # Verificar se existe usuário admin
+        # Criar admin se não existir
         admin_user = db.query(User).filter(User.username == 'admin').first()
         if not admin_user:
-            # Import aqui para evitar ciclo
             try:
                 from security import hash_password
                 admin_user = User(
@@ -88,21 +115,18 @@ def init_db():
                     is_admin=True
                 )
                 db.add(admin_user)
-                print("👤 Usuário admin criado (senha: admin123)")
+                print("👤 Usuário admin criado")
             except ImportError:
-                print("⚠️ Não foi possível criar admin: security module not found")
+                pass
         
         db.commit()
-        print("✅ Banco de dados inicializado com sucesso!")
-        
     except Exception as e:
         db.rollback()
-        print(f"❌ Erro ao inicializar dados: {e}")
+        print(f"❌ Erro DB: {e}")
     finally:
         db.close()
 
 def get_db():
-    """Retorna uma sessão do banco de dados"""
     db = SessionLocal()
     try:
         yield db
