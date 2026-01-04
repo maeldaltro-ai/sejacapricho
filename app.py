@@ -3,20 +3,27 @@ import pandas as pd
 from datetime import datetime, timedelta
 import json
 import tempfile
-from reportlab.lib.pagesizes import A4
-from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+import sys
+import os
+
+# Adicionar diretório atual ao path
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 # --- IMPORTAÇÕES ---
-from auth import require_auth, get_current_user, show_login_register_page, auth_system, is_admin
-from models import init_db, get_db, SessionLocal, User, Product, Customer, Supplier, Order, Budget, SystemConfig
-from security import hash_password, verify_password, validate_email, validate_password_strength
-from config import config
-
-# Inicializar banco de dados
-init_db()
+try:
+    from auth import require_auth, get_current_user, show_login_register_page, auth_system, is_admin
+    from models import init_db, get_db, SessionLocal, User, Product, Customer, Supplier, Order, Budget, SystemConfig
+    from security import hash_password, verify_password, validate_email, validate_password_strength
+    from config import config
+    
+    # Inicializar banco de dados
+    init_db()
+    print("✅ Banco de dados inicializado com sucesso!")
+    
+except Exception as e:
+    st.error(f"❌ Erro ao inicializar o sistema: {e}")
+    print(f"❌ Erro detalhado: {e}")
+    st.stop()
 
 # --- CONSTANTES E CORES ---
 COR_ROXA = "#9370DB"
