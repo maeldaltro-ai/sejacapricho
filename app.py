@@ -69,7 +69,8 @@ except ImportError as e:
 # --- IMPORTAÇÕES PRINCIPAIS ---
 try:
     from auth import require_auth, get_current_user, show_login_register_page, auth_system, is_admin
-    from models import init_db, SessionLocal, User # Remova get_db se não usar
+    from models import init_db, SessionLocal, User, Product, Customer, Supplier, Order, Budget, SystemConfig
+    from security import hash_password, verify_password, validate_email, validate_password_strength
     from config import config
     
     # Inicialização única segura
@@ -78,8 +79,7 @@ try:
         st.session_state.db_initialized = True
         
 except Exception as e:
-    st.error(f"❌ Erro de herança/inicialização: {e}")
-    st.info("Dica: Verifique se o SQLAlchemy no requirements.txt é o 1.4.52")
+    st.error(f"❌ Erro de Inicialização: {e}")
     st.stop()
     
 # --- CONSTANTES E CORES ---
