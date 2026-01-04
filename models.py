@@ -365,5 +365,3 @@ def get_db():
         yield db
     finally:
         db.close()
-except Exception as e:
-        print(f"Erro na inicialização do DB: {e}")
